@@ -1,0 +1,14 @@
+# Python / Venv
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Local Build and Directory (Everything goes here now)
+local_builds/
+build_local.sh
+
+# IDE Settings
+.vscode/
+.idea/
