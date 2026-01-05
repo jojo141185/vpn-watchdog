@@ -3,9 +3,9 @@
 # =============================================================================
 # VPN WATCHDOG - SETUP MANAGER
 # =============================================================================
-# Install, Update, and Uninstall script.
-# Compatible with direct curl execution:
-# bash <(curl -sL https://raw.githubusercontent.com/jojo141185/vpn-watchdog/main/setup/setup.sh) install
+# Syntax:
+# ./setup.sh install
+# ./setup.sh install --channel main
 # =============================================================================
 
 # --- CONFIGURATION ---
@@ -14,25 +14,46 @@ BINARY_NAME="vpn-watchdog"
 INSTALL_DIR="/usr/local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 CONFIG_DIR="$HOME/.config/vpn-watchdog"
-AUTOSTART_DIR="$HOME/.config/autostart"
 
 # GITHUB CONFIG
 REPO_USER="jojo141185"
 REPO_NAME="vpn-watchdog"
-DOWNLOAD_URL="https://github.com/$REPO_USER/$REPO_NAME/releases/latest/download/$BINARY_NAME"
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
+
+# Default Channel
+CHANNEL="stable"
+
+# Parse Arguments
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[i]}" == "--channel" ]]; then
+        CHANNEL="${args[i+1]}"
+    fi
+done
+
+# Calculate Download URL based on Channel
+if [ "$CHANNEL" == "stable" ]; then
+    # Standard Latest Release
+    DOWNLOAD_URL="https://github.com/$REPO_USER/$REPO_NAME/releases/latest/download/$BINARY_NAME"
+    VERSION_MSG="Stable Release"
+else
+    # Rolling Release (latest-main or latest-develop)
+    DOWNLOAD_URL="https://github.com/$REPO_USER/$REPO_NAME/releases/download/latest-$CHANNEL/$BINARY_NAME"
+    VERSION_MSG="Dev Build ($CHANNEL)"
+fi
 
 print_header() {
     clear
     echo -e "${BLUE}======================================================${NC}"
     echo -e "${BLUE}   VPN WATCHDOG - SETUP MANAGER${NC}"
     echo -e "${BLUE}======================================================${NC}"
+    echo -e "Target: $VERSION_MSG"
 }
 
 ensure_sudo() {
@@ -42,64 +63,52 @@ ensure_sudo() {
     fi
 }
 
-# 1. INSTALL DEPENDENCIES
 install_dependencies() {
     echo -e "\n${BLUE}[1/4] Checking system dependencies...${NC}"
-    
     if command -v apt-get &> /dev/null; then
-        echo "Detected: APT"
         sudo apt-get update -qq
         sudo apt-get install -y -qq gir1.2-appindicator3-0.1 libappindicator3-1 python3-tk xapp
     elif command -v dnf &> /dev/null; then
-        echo "Detected: DNF"
         sudo dnf install -y libappindicator-gtk3 python3-tkinter
     elif command -v pacman &> /dev/null; then
-        echo "Detected: Pacman"
         sudo pacman -S --noconfirm libappindicator-gtk3 tk
     else
-        echo -e "${RED}Warning: No known package manager found.${NC}"
-        echo "Please ensure 'libappindicator' and 'python-tk' are installed."
+        echo -e "${RED}Warning: Manual dependency check required.${NC}"
     fi
 }
 
-# 2. FETCH BINARY
 fetch_binary() {
-    echo -e "\n${BLUE}[2/4] Preparing installation...${NC}"
+    echo -e "\n${BLUE}[2/4] Fetching binary...${NC}"
     
-    if [ -f "./$BINARY_NAME" ]; then
-        echo -e "${GREEN}Local binary found.${NC}"
+    # Try local first (only if no channel specified or explicit local install)
+    if [ -f "./$BINARY_NAME" ] && [ "$CHANNEL" == "stable" ]; then
+        echo -e "${GREEN}Local binary found. Installing local version.${NC}"
         cp "./$BINARY_NAME" "/tmp/$BINARY_NAME"
     else
-        echo -e "${YELLOW}No local file found. Downloading from GitHub...${NC}"
+        echo -e "${YELLOW}Downloading from GitHub ($CHANNEL)...${NC}"
         echo "URL: $DOWNLOAD_URL"
         
-        if curl --output /dev/null --silent --head --fail "$DOWNLOAD_URL"; then
-            curl -L -o "/tmp/$BINARY_NAME" "$DOWNLOAD_URL" --progress-bar
+        # Use -L to follow redirects
+        if curl -L --output "/tmp/$BINARY_NAME" --fail "$DOWNLOAD_URL"; then
             echo -e "${GREEN}Download successful.${NC}"
         else
-            echo -e "${RED}ERROR: Could not download from GitHub.${NC}"
-            echo "Ensure a Release exists and the file is named '$BINARY_NAME'."
+            echo -e "${RED}ERROR: Download failed.${NC}"
+            echo "Check if the release 'latest-$CHANNEL' exists on GitHub."
             exit 1
         fi
     fi
-    
     chmod +x "/tmp/$BINARY_NAME"
 }
 
-# 3. INSTALL FILES
 install_files() {
-    echo -e "\n${BLUE}[3/4] Installing application...${NC}"
+    echo -e "\n${BLUE}[3/4] Installing...${NC}"
     ensure_sudo
-
     pkill -f "$BINARY_NAME" 2>/dev/null
 
-    echo "Copying to $INSTALL_DIR..."
     sudo cp "/tmp/$BINARY_NAME" "$INSTALL_DIR/$APP_NAME"
     sudo chmod +x "$INSTALL_DIR/$APP_NAME"
 
-    echo "Creating menu entry..."
     mkdir -p "$DESKTOP_DIR"
-    
     cat << EOF > "$DESKTOP_DIR/$APP_NAME.desktop"
 [Desktop Entry]
 Type=Application
@@ -110,70 +119,32 @@ Icon=security-high
 Terminal=false
 Categories=Network;Utility;System;
 EOF
-
     chmod +x "$DESKTOP_DIR/$APP_NAME.desktop"
     rm -f "/tmp/$BINARY_NAME"
-    
     echo -e "${GREEN}Installation complete!${NC}"
 }
 
-# 4. UNINSTALL
 uninstall_app() {
     print_header
     echo -e "${RED}WARNING: Uninstalling${NC}"
-    read -p "Do you really want to remove VPN Watchdog? (y/N): " confirm
-    if [[ $confirm != [yY] && $confirm != [yY][eE][sS] ]]; then
-        exit 0
-    fi
-
-    echo -e "\nStopping process..."
     pkill -f "$APP_NAME"
-
-    echo "Deleting files..."
     sudo rm -f "$INSTALL_DIR/$APP_NAME"
     rm -f "$DESKTOP_DIR/$APP_NAME.desktop"
-    rm -f "$AUTOSTART_DIR/$APP_NAME.desktop"
-
-    echo "Deleting configuration..."
-    rm -rf "$CONFIG_DIR"
-
-    echo -e "${GREEN}VPN Watchdog removed successfully.${NC}"
+    echo -e "${GREEN}Removed.${NC}"
 }
 
-# --- MENU ---
-show_menu() {
+# CLI Router
+if [[ " $@ " =~ " install " ]] || [[ "$1" == "install" ]]; then
     print_header
-    echo "1) Install (or Update)"
-    echo "2) Uninstall"
-    echo "0) Exit"
-    echo ""
-    read -p "Choice: " choice
-
-    case $choice in
-        1)
-            install_dependencies
-            fetch_binary
-            install_files
-            echo -e "\n${GREEN}Done! You can find the app in your start menu.${NC}"
-            ;;
-        2)
-            uninstall_app
-            ;;
-        0)
-            exit 0
-            ;;
-        *)
-            echo "Invalid choice."
-            ;;
-    esac
-}
-
-if [ "$1" == "install" ] || [ "$1" == "-i" ]; then
     install_dependencies
     fetch_binary
     install_files
-elif [ "$1" == "remove" ] || [ "$1" == "uninstall" ] || [ "$1" == "-u" ]; then
+elif [[ " $@ " =~ " uninstall " ]] || [[ "$1" == "uninstall" ]]; then
     uninstall_app
 else
-    show_menu
+    echo "Usage:"
+    echo "  ./setup.sh install"
+    echo "  ./setup.sh install --channel main"
+    echo "  ./setup.sh install --channel develop"
+    echo "  ./setup.sh uninstall"
 fi
