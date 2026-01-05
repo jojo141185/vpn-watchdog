@@ -3,13 +3,14 @@
 # =============================================================================
 # VPN WATCHDOG - SETUP MANAGER
 # =============================================================================
-# Syntax:
-# ./setup.sh install
-# ./setup.sh install --channel main
+# Install, Update, and Uninstall script.
+# Compatible with direct curl execution:
+# bash <(curl -sL https://raw.githubusercontent.com/jojo141185/vpn-watchdog/main/setup/setup.sh) install
 # =============================================================================
 
 # --- CONFIGURATION ---
 APP_NAME="vpn-watchdog"
+# The binary name inside the ZIP is always consistent
 BINARY_NAME="vpn-watchdog" 
 INSTALL_DIR="/usr/local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -19,15 +20,15 @@ CONFIG_DIR="$HOME/.config/vpn-watchdog"
 REPO_USER="jojo141185"
 REPO_NAME="vpn-watchdog"
 
+# Default Channel
+CHANNEL="stable"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
-# Default Channel
-CHANNEL="stable"
 
 # Parse Arguments
 args=("$@")
@@ -37,23 +38,42 @@ for ((i=0; i<${#args[@]}; i++)); do
     fi
 done
 
-# Calculate Download URL based on Channel
-if [ "$CHANNEL" == "stable" ]; then
-    # Standard Latest Release
-    DOWNLOAD_URL="https://github.com/$REPO_USER/$REPO_NAME/releases/latest/download/$BINARY_NAME"
-    VERSION_MSG="Stable Release"
-else
-    # Rolling Release (latest-main or latest-develop)
-    DOWNLOAD_URL="https://github.com/$REPO_USER/$REPO_NAME/releases/download/latest-$CHANNEL/$BINARY_NAME"
-    VERSION_MSG="Dev Build ($CHANNEL)"
-fi
+# --- ARCHITECTURE DETECTION ---
+detect_platform() {
+    OS="linux" # Setup.sh assumes Linux context mostly
+    ARCH=$(uname -m)
+    
+    # Normalize Arch to match GitHub Action Naming
+    case $ARCH in
+        x86_64) ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+        armv7l) ARCH="armv7" ;; # Raspberry Pi 32bit (not built by default yet)
+    esac
+    
+    PACKAGE_FILENAME="vpn-watchdog-${OS}-${ARCH}.zip"
+    echo "Detected Platform: $OS ($ARCH)"
+    echo "Target Package: $PACKAGE_FILENAME"
+}
+
+# --- DOWNLOAD URL CALCULATION ---
+get_download_url() {
+    if [ "$CHANNEL" == "stable" ]; then
+        URL="https://github.com/$REPO_USER/$REPO_NAME/releases/latest/download/$PACKAGE_FILENAME"
+        VERSION_MSG="Stable Release"
+    else
+        URL="https://github.com/$REPO_USER/$REPO_NAME/releases/download/latest-$CHANNEL/$PACKAGE_FILENAME"
+        VERSION_MSG="Dev Build ($CHANNEL)"
+    fi
+}
 
 print_header() {
     clear
     echo -e "${BLUE}======================================================${NC}"
     echo -e "${BLUE}   VPN WATCHDOG - SETUP MANAGER${NC}"
     echo -e "${BLUE}======================================================${NC}"
-    echo -e "Target: $VERSION_MSG"
+    detect_platform
+    get_download_url
+    echo -e "Source: $VERSION_MSG"
 }
 
 ensure_sudo() {
@@ -67,37 +87,52 @@ install_dependencies() {
     echo -e "\n${BLUE}[1/4] Checking system dependencies...${NC}"
     if command -v apt-get &> /dev/null; then
         sudo apt-get update -qq
-        sudo apt-get install -y -qq gir1.2-appindicator3-0.1 libappindicator3-1 python3-tk xapp
+        sudo apt-get install -y -qq gir1.2-appindicator3-0.1 libappindicator3-1 python3-tk xapp unzip
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y libappindicator-gtk3 python3-tkinter
+        sudo dnf install -y libappindicator-gtk3 python3-tkinter unzip
     elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm libappindicator-gtk3 tk
+        sudo pacman -S --noconfirm libappindicator-gtk3 tk unzip
     else
-        echo -e "${RED}Warning: Manual dependency check required.${NC}"
+        echo -e "${RED}Warning: Manual dependency check required (need unzip, python-tk, libappindicator).${NC}"
     fi
 }
 
-fetch_binary() {
-    echo -e "\n${BLUE}[2/4] Fetching binary...${NC}"
+fetch_and_unpack() {
+    echo -e "\n${BLUE}[2/4] Fetching package...${NC}"
+    TMP_DIR="/tmp/vpn-watchdog-install"
+    rm -rf "$TMP_DIR"
+    mkdir -p "$TMP_DIR"
     
-    # Try local first (only if no channel specified or explicit local install)
+    ZIP_PATH="$TMP_DIR/$PACKAGE_FILENAME"
+    
+    # Check if we are running from an extracted folder (Local Install)
     if [ -f "./$BINARY_NAME" ] && [ "$CHANNEL" == "stable" ]; then
-        echo -e "${GREEN}Local binary found. Installing local version.${NC}"
-        cp "./$BINARY_NAME" "/tmp/$BINARY_NAME"
+        echo -e "${GREEN}Local binary found. Skipping download.${NC}"
+        cp "./$BINARY_NAME" "$TMP_DIR/$BINARY_NAME"
     else
-        echo -e "${YELLOW}Downloading from GitHub ($CHANNEL)...${NC}"
-        echo "URL: $DOWNLOAD_URL"
+        echo -e "${YELLOW}Downloading $PACKAGE_FILENAME...${NC}"
+        echo "URL: $URL"
         
-        # Use -L to follow redirects
-        if curl -L --output "/tmp/$BINARY_NAME" --fail "$DOWNLOAD_URL"; then
+        if curl -L --output "$ZIP_PATH" --fail "$URL"; then
             echo -e "${GREEN}Download successful.${NC}"
+            echo "Unzipping..."
+            unzip -o -q "$ZIP_PATH" -d "$TMP_DIR"
         else
             echo -e "${RED}ERROR: Download failed.${NC}"
-            echo "Check if the release 'latest-$CHANNEL' exists on GitHub."
+            echo "1. Check internet connection."
+            echo "2. Check if a build for '$ARCH' exists in the release."
             exit 1
         fi
     fi
-    chmod +x "/tmp/$BINARY_NAME"
+    
+    # Verify binary exists after unzip
+    if [ ! -f "$TMP_DIR/$BINARY_NAME" ]; then
+        echo -e "${RED}Error: Binary not found in package!${NC}"
+        ls -l "$TMP_DIR"
+        exit 1
+    fi
+    
+    chmod +x "$TMP_DIR/$BINARY_NAME"
 }
 
 install_files() {
@@ -105,7 +140,9 @@ install_files() {
     ensure_sudo
     pkill -f "$BINARY_NAME" 2>/dev/null
 
-    sudo cp "/tmp/$BINARY_NAME" "$INSTALL_DIR/$APP_NAME"
+    TMP_DIR="/tmp/vpn-watchdog-install"
+    
+    sudo cp "$TMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$APP_NAME"
     sudo chmod +x "$INSTALL_DIR/$APP_NAME"
 
     mkdir -p "$DESKTOP_DIR"
@@ -120,7 +157,10 @@ Terminal=false
 Categories=Network;Utility;System;
 EOF
     chmod +x "$DESKTOP_DIR/$APP_NAME.desktop"
-    rm -f "/tmp/$BINARY_NAME"
+    
+    # Cleanup
+    rm -rf "$TMP_DIR"
+    
     echo -e "${GREEN}Installation complete!${NC}"
 }
 
@@ -137,7 +177,7 @@ uninstall_app() {
 if [[ " $@ " =~ " install " ]] || [[ "$1" == "install" ]]; then
     print_header
     install_dependencies
-    fetch_binary
+    fetch_and_unpack
     install_files
 elif [[ " $@ " =~ " uninstall " ]] || [[ "$1" == "uninstall" ]]; then
     uninstall_app
@@ -145,6 +185,5 @@ else
     echo "Usage:"
     echo "  ./setup.sh install"
     echo "  ./setup.sh install --channel main"
-    echo "  ./setup.sh install --channel develop"
     echo "  ./setup.sh uninstall"
 fi

@@ -33,14 +33,17 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
-            os_short: linux
-            exe_ext: ""
+            os_name: linux
+            setup_script: setup.sh
+            binary_name: vpn-watchdog
           - os: windows-latest
-            os_short: windows
-            exe_ext: ".exe"
+            os_name: windows
+            setup_script: setup.bat
+            binary_name: vpn-watchdog.exe
           - os: macos-latest
-            os_short: macos
-            exe_ext: ""
+            os_name: darwin # Standard nomenclature for macOS
+            setup_script: setup.command
+            binary_name: vpn-watchdog
 
     steps:
       # --- 1. FILTER CHECK ---
@@ -71,14 +74,25 @@ jobs:
         with:
           python-version: '3.12'
 
-      # --- VERSION LOGIC ---
-      - name: Inject Version Info
+      # --- VERSION & ARCH LOGIC ---
+      - name: Inject Version and Detect Arch
         if: steps.check_filter.outputs.skip != 'true'
         shell: bash
         run: |
           CURRENT_DATE=$(date -u +'%Y-%m-%d %H:%M UTC')
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           
+          # Detect Architecture (amd64, arm64, x86_64)
+          RAW_ARCH=$(uname -m)
+          # Normalize Arch names
+          if [[ "$RAW_ARCH" == "x86_64" ]]; then ARCH="amd64"; 
+          elif [[ "$RAW_ARCH" == "aarch64" ]]; then ARCH="arm64";
+          elif [[ "$RAW_ARCH" == "arm64" ]]; then ARCH="arm64";
+          else ARCH="$RAW_ARCH"; fi
+          
+          echo "Detected Architecture: $ARCH"
+          
+          # Determine Version Strings
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             # RELEASE MODE (Stable)
             VERSION_STR="${{ github.ref_name }}"
@@ -89,7 +103,6 @@ jobs:
           else
             # DEV MODE (Rolling Release)
             BRANCH_NAME="${{ github.ref_name }}"
-            # Sanitize branch name just in case
             BRANCH_NAME=${BRANCH_NAME/\//-} 
             VERSION_STR="dev-${BRANCH_NAME}-${SHORT_SHA}"
             TARGET_TAG="latest-${BRANCH_NAME}"
@@ -98,17 +111,21 @@ jobs:
             echo "BUILD_MODE=dev" >> $GITHUB_ENV
           fi
           
+          # Define Package Name: vpn-watchdog-<OS>-<ARCH>.zip
+          PKG_NAME="vpn-watchdog-${{ matrix.os_name }}-${ARCH}.zip"
+          
           echo "Target Tag: $TARGET_TAG"
+          echo "Package Name: $PKG_NAME"
+          
           echo "TARGET_TAG=$TARGET_TAG" >> $GITHUB_ENV
           echo "IS_PRERELEASE=$PRERELEASE" >> $GITHUB_ENV
           echo "MAKE_LATEST=$MAKE_LATEST" >> $GITHUB_ENV
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_ENV
           
           # Overwrite src/version.py
           echo "BUILD_TAG = '$VERSION_STR'" > src/version.py
           echo "COMMIT_HASH = '${{ github.sha }}'" >> src/version.py
           echo "BUILD_DATE = '$CURRENT_DATE'" >> src/version.py
-          
-          cat src/version.py
 
       - name: Install System Dependencies (Linux)
         if: matrix.os == 'ubuntu-latest' && steps.check_filter.outputs.skip != 'true'
@@ -127,14 +144,39 @@ jobs:
         run: |
           pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
 
+      # --- PACKAGING (ZIP) ---
+      - name: Create ZIP Package
+        if: steps.check_filter.outputs.skip != 'true'
+        shell: bash
+        run: |
+          mkdir staging
+          
+          # Copy Binary
+          cp "dist/${{ matrix.binary_name }}" staging/
+          
+          # Copy Specific Setup Script
+          cp "setup/${{ matrix.setup_script }}" staging/
+          
+          # Copy README (Optional but good practice)
+          cp README.md staging/
+          
+          # Create ZIP
+          cd staging
+          # Use 7z or zip depending on OS availability, usually zip is available
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+             7z a -tzip "../${{ env.PKG_NAME }}" *
+          else
+             zip -r "../${{ env.PKG_NAME }}" .
+          fi
+          cd ..
+
       # --- UPLOAD TO RELEASE ---
       - name: Upload to Release
         if: steps.check_filter.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TARGET_TAG }}
-          files: |
-            dist/vpn-watchdog${{ matrix.exe_ext }}
+          files: ${{ env.PKG_NAME }}
           name: ${{ env.TARGET_TAG }}
           body: "Build: ${{ env.BUILD_TAG }} | Commit: ${{ github.sha }}"
           draft: false
