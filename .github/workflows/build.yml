@@ -134,11 +134,14 @@ jobs:
           sudo apt-get update
           # Ubuntu 24.04 (Noble) Requirements:
           # - xvfb: To simulate a display for PyInstaller/GTK analysis.
-          # - gir1.2-glib-2.0: Runtime introspection data for GLib.
-          # - libgirepository-2.0-dev: New GObject Introspection API.
+          # - gobject-introspection: The tool itself to scan typelibs.
+          # - gir1.2-gtk-3.0: Explicit GTK3 typelibs.
+          # - libgirepository-2.0-dev: New GObject Introspection API headers.
           sudo apt-get install -y \
             xvfb \
+            gobject-introspection \
             gir1.2-glib-2.0 \
+            gir1.2-gtk-3.0 \
             libglib2.0-dev \
             libgirepository-2.0-dev \
             libcairo2-dev \
@@ -157,6 +160,8 @@ jobs:
 
       - name: Build Binary
         if: steps.check_filter.outputs.skip != 'true'
+        # IMPORTANT: Use 'shell: bash' to make the syntax work on Windows too (Git Bash)
+        shell: bash
         run: |
           if [[ "${{ matrix.os_name }}" == "linux" ]]; then
             # Run PyInstaller inside a virtual framebuffer (xvfb) to prevent Xlib/Display errors
