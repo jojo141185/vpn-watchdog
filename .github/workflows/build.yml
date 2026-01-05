@@ -55,7 +55,7 @@ jobs:
           if [[ -z "$TARGET" ]]; then TARGET="all"; fi
           
           if [[ "$TARGET" != "all" && "$TARGET" != "$CURRENT" ]]; then
-            echo "Skipping build for $CURRENT (Target was $TARGET)"
+            echo "Skipping build for $CURRENT"
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -80,25 +80,28 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            # RELEASE MODE
+            # RELEASE MODE (Stable)
             VERSION_STR="${{ github.ref_name }}"
             TARGET_TAG="${{ github.ref_name }}"
             PRERELEASE=false
+            MAKE_LATEST=true
             echo "BUILD_MODE=stable" >> $GITHUB_ENV
           else
-            # DEV MODE (rolling release)
+            # DEV MODE (Rolling Release)
             BRANCH_NAME="${{ github.ref_name }}"
             # Sanitize branch name just in case
             BRANCH_NAME=${BRANCH_NAME/\//-} 
             VERSION_STR="dev-${BRANCH_NAME}-${SHORT_SHA}"
             TARGET_TAG="latest-${BRANCH_NAME}"
             PRERELEASE=true
+            MAKE_LATEST=false
             echo "BUILD_MODE=dev" >> $GITHUB_ENV
           fi
           
           echo "Target Tag: $TARGET_TAG"
           echo "TARGET_TAG=$TARGET_TAG" >> $GITHUB_ENV
           echo "IS_PRERELEASE=$PRERELEASE" >> $GITHUB_ENV
+          echo "MAKE_LATEST=$MAKE_LATEST" >> $GITHUB_ENV
           
           # Overwrite src/version.py
           echo "BUILD_TAG = '$VERSION_STR'" > src/version.py
@@ -127,7 +130,7 @@ jobs:
       # --- UPLOAD TO RELEASE ---
       - name: Upload to Release
         if: steps.check_filter.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TARGET_TAG }}
           files: |
@@ -136,6 +139,7 @@ jobs:
           body: "Build: ${{ env.BUILD_TAG }} | Commit: ${{ github.sha }}"
           draft: false
           prerelease: ${{ env.IS_PRERELEASE }}
-          overwrite: true 
+          overwrite_files: true
+          make_latest: ${{ env.MAKE_LATEST }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
