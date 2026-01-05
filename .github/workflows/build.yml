@@ -132,12 +132,14 @@ jobs:
         if: matrix.os_name == 'linux' && steps.check_filter.outputs.skip != 'true'
         run: |
           sudo apt-get update
-          # Ubuntu 24.04 (Noble) has conflicting packages for legacy appindicator vs ayatana.
-          # We must use the modern Ayatana libraries to avoid "Unmet dependencies" errors.
-          # We also include build tools (cairo, pkg-config, girepository) for building PyGObject.
+          # Ubuntu 24.04 (Noble) Requirements:
+          # - libglib2.0-dev: Provides 'girepository-2.0' required by newer PyGObject
+          # - libcairo2-dev, pkg-config, python3-dev: Build tools for PyGObject
+          # - libayatana-appindicator3-dev: Modern AppIndicator support
           sudo apt-get install -y \
-            libcairo2-dev \
+            libglib2.0-dev \
             libgirepository1.0-dev \
+            libcairo2-dev \
             pkg-config \
             python3-dev \
             libgtk-3-dev \
