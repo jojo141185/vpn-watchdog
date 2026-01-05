@@ -132,13 +132,13 @@ jobs:
         if: matrix.os_name == 'linux' && steps.check_filter.outputs.skip != 'true'
         run: |
           sudo apt-get update
-          # Ubuntu 24.04 (Noble) Requirements:
-          # - libglib2.0-dev: Provides 'girepository-2.0' required by newer PyGObject
-          # - libcairo2-dev, pkg-config, python3-dev: Build tools for PyGObject
-          # - libayatana-appindicator3-dev: Modern AppIndicator support
+          # Ubuntu 24.04 (Noble) Requirements for PyGObject 3.54+:
+          # - libgirepository-2.0-dev: The NEW GObject Introspection API required by modern PyGObject.
+          # - libcairo2-dev, pkg-config, python3-dev: Build tools.
+          # - libayatana-appindicator3-dev: Modern AppIndicator support.
           sudo apt-get install -y \
             libglib2.0-dev \
-            libgirepository1.0-dev \
+            libgirepository-2.0-dev \
             libcairo2-dev \
             pkg-config \
             python3-dev \
