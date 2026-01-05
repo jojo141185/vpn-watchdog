@@ -130,12 +130,13 @@ install_dependencies() {
             echo "Detected: APT"
             sudo apt-get update -qq
             # INSTALL BOTH: Legacy and Ayatana (Modern) to cover all bases
+            # REMOVED 'xapp' causing errors
             sudo apt-get install -y -qq \
                 gir1.2-appindicator3-0.1 \
                 libappindicator3-1 \
                 gir1.2-ayatanaappindicator3-0.1 \
                 libayatana-appindicator3-1 \
-                python3-tk xapp unzip
+                python3-tk unzip
         elif command -v dnf &> /dev/null; then
             echo "Detected: DNF"
             # Fedora usually maps libappindicator to ayatana automatically, but we ensure gtk3 support

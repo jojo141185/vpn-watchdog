@@ -251,12 +251,12 @@ class TrayApp:
         self.update_menu() 
 
     def create_image(self, color_name):
-        width, height = 64, 64
+        width, height = 256, 256
         colors = { "green": (0, 255, 0, 255), "red": (255, 0, 0, 255), "yellow": (255, 255, 0, 255), "gray": (128, 128, 128, 255) }
         image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         dc = ImageDraw.Draw(image)
-        dc.ellipse((8, 8, 56, 56), fill=colors.get(color_name, colors["gray"]))
-        if color_name == "green": dc.rectangle((26, 26, 38, 38), fill="white")
+        dc.ellipse((32, 32, 224, 224), fill=colors.get(color_name, colors["gray"]))
+        if color_name == "green": dc.rectangle((104, 104, 152, 152), fill="white")
         return image
 
     def update_menu(self):
