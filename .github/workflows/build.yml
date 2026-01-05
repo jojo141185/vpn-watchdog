@@ -134,14 +134,16 @@ jobs:
           sudo apt-get update
           # Ubuntu 24.04 (Noble) Requirements:
           # - xvfb: To simulate a display for PyInstaller/GTK analysis.
-          # - gobject-introspection: The tool itself to scan typelibs.
+          # - gir1.2-girepository-2.0: CRITICAL missing link for 'Namespace GIRepository not available'
           # - gir1.2-gtk-3.0: Explicit GTK3 typelibs.
           # - libgirepository-2.0-dev: New GObject Introspection API headers.
           sudo apt-get install -y \
             xvfb \
+            dbus-x11 \
             gobject-introspection \
             gir1.2-glib-2.0 \
             gir1.2-gtk-3.0 \
+            gir1.2-girepository-2.0 \
             libglib2.0-dev \
             libgirepository-2.0-dev \
             libcairo2-dev \
@@ -164,8 +166,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.os_name }}" == "linux" ]]; then
-            # Run PyInstaller inside a virtual framebuffer (xvfb) to prevent Xlib/Display errors
-            xvfb-run --auto-servernum pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
+            # Run PyInstaller inside a virtual framebuffer (xvfb) AND a DBus session
+            # This is required because Gtk/AppIndicator need a message bus to initialize during build introspection
+            dbus-run-session xvfb-run --auto-servernum pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
           else
             pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
           fi
