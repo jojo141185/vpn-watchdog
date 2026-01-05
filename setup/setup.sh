@@ -127,12 +127,22 @@ install_dependencies() {
     
     if [ "$OS" == "linux" ]; then
         if command -v apt-get &> /dev/null; then
+            echo "Detected: APT"
             sudo apt-get update -qq
-            sudo apt-get install -y -qq gir1.2-appindicator3-0.1 libappindicator3-1 python3-tk xapp unzip
+            # INSTALL BOTH: Legacy and Ayatana (Modern) to cover all bases
+            sudo apt-get install -y -qq \
+                gir1.2-appindicator3-0.1 \
+                libappindicator3-1 \
+                gir1.2-ayatanaappindicator3-0.1 \
+                libayatana-appindicator3-1 \
+                python3-tk xapp unzip
         elif command -v dnf &> /dev/null; then
-            sudo dnf install -y libappindicator-gtk3 python3-tkinter unzip
+            echo "Detected: DNF"
+            # Fedora usually maps libappindicator to ayatana automatically, but we ensure gtk3 support
+            sudo dnf install -y libappindicator-gtk3 libayatana-appindicator-gtk3 python3-tkinter unzip
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm libappindicator-gtk3 tk unzip
+            echo "Detected: Pacman"
+            sudo pacman -S --noconfirm libappindicator-gtk3 libayatana-appindicator python-gobject tk unzip
         else
             echo -e "${RED}Warning: Manual dependency check required.${NC}"
         fi

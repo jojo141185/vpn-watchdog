@@ -16,7 +16,7 @@ on:
         type: choice
         options:
           - all
-          - ubuntu-latest
+          - ubuntu-20.04
           - windows-latest
           - macos-latest
 
@@ -30,9 +30,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Use Ubuntu 20.04 for better backward compatibility of Linux binaries
+        os: [ubuntu-20.04, windows-latest, macos-latest]
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             os_name: linux
             setup_script: setup.sh
             binary_name: vpn-watchdog
@@ -86,8 +87,7 @@ jobs:
           RAW_ARCH=$(uname -m)
           # Normalize Arch names
           if [[ "$RAW_ARCH" == "x86_64" ]]; then ARCH="amd64"; 
-          elif [[ "$RAW_ARCH" == "aarch64" ]]; then ARCH="arm64";
-          elif [[ "$RAW_ARCH" == "arm64" ]]; then ARCH="arm64";
+          elif [[ "$RAW_ARCH" == "aarch64" || "$RAW_ARCH" == "arm64" ]]; then ARCH="arm64";
           else ARCH="$RAW_ARCH"; fi
           
           echo "Detected Architecture: $ARCH"
@@ -127,11 +127,17 @@ jobs:
           echo "COMMIT_HASH = '${{ github.sha }}'" >> src/version.py
           echo "BUILD_DATE = '$CURRENT_DATE'" >> src/version.py
 
+      # --- INSTALL DEPS (Ensure Ayatana & Legacy dev libs) ---
       - name: Install System Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && steps.check_filter.outputs.skip != 'true'
+        if: matrix.os == 'ubuntu-20.04' && steps.check_filter.outputs.skip != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gir1.2-appindicator3-0.1 libappindicator3-dev python3-tk
+          # Install BOTH legacy and modern indicator dev libraries to ensure compilation hooks find them
+          sudo apt-get install -y \
+            gir1.2-appindicator3-0.1 \
+            libappindicator3-dev \
+            libayatana-appindicator3-dev \
+            python3-tk
 
       - name: Install Python Dependencies
         if: steps.check_filter.outputs.skip != 'true'
@@ -150,14 +156,8 @@ jobs:
         shell: bash
         run: |
           mkdir staging
-          
-          # Copy Binary
           cp "dist/${{ matrix.binary_name }}" staging/
-          
-          # Copy Specific Setup Script
           cp "setup/${{ matrix.setup_script }}" staging/
-          
-          # Copy README (Optional but good practice)
           cp README.md staging/
           
           # Create ZIP

@@ -5,6 +5,48 @@ import logging
 
 logger = logging.getLogger("VPNWatchdog")
 
+# --- LINUX BACKEND SETUP (ROBUST) ---
+def setup_linux_backend():
+    """
+    Tries to force the correct backend for Linux Tray Icons.
+    Supports both legacy AppIndicator3 and modern AyatanaAppIndicator3.
+    """
+    if platform.system() != "Linux":
+        return
+
+    # Suppress GTK Accessibility Warnings (Spam in Terminal)
+    os.environ["NO_AT_BRIDGE"] = "1"
+
+    # Try to find a valid backend
+    backend_found = False
+    
+    # 1. Try Modern Ayatana (Standard in Ubuntu 22.04+, Debian 11+)
+    try:
+        import gi
+        gi.require_version('Gtk', '3.0')
+        try:
+            gi.require_version('AyatanaAppIndicator3', '0.1')
+            os.environ['PYSTRAY_BACKEND'] = 'appindicator'
+            backend_found = True
+            # logger.debug("Backend set: AyatanaAppIndicator3")
+        except (ImportError, ValueError):
+            # 2. Try Legacy AppIndicator3 (Ubuntu 20.04 and older)
+            try:
+                gi.require_version('AppIndicator3', '0.1')
+                os.environ['PYSTRAY_BACKEND'] = 'appindicator'
+                backend_found = True
+                # logger.debug("Backend set: AppIndicator3")
+            except (ImportError, ValueError):
+                pass
+    except Exception as e:
+        # logger.error(f"GTK/GI Error: {e}")
+        pass
+
+    if not backend_found:
+        # Fallback to XEmbed (TrayIcon might look ugly or fail on Wayland)
+        # We don't set PYSTRAY_BACKEND, letting pystray decide (usually 'gtk')
+        pass
+
 # --- C-LEVEL SILENCER ---
 # Suppresses GTK/C-level warnings in the terminal
 class CLevelSilencer:

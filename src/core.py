@@ -3,23 +3,7 @@ import platform
 import logging
 import subprocess
 import re
-from utils import CLevelSilencer
 
-# GTK Backend Setup (Linux specific)
-def setup_linux_backend():
-    if platform.system() != "Linux": return
-    import os
-    os.environ["NO_AT_BRIDGE"] = "1"
-    
-    with CLevelSilencer():
-        try:
-            import gi
-            gi.require_version('Gtk', '3.0')
-            gi.require_version('AppIndicator3', '0.1')
-            os.environ['PYSTRAY_BACKEND'] = 'appindicator'
-        except:
-            pass
-setup_linux_backend()
 
 logger = logging.getLogger("VPNWatchdog")
 
@@ -146,7 +130,7 @@ class VPNChecker:
         active_iface = self.get_active_route_interface_name()
         
         if not active_iface:
-            logger.warning("Could not determine active routing interface. Checking internet connection.")
+            logger.warning("Could not determine active routing interface.")
             return False
 
         logger.debug(f"Active Interface: '{active_iface}' | Allowed: {allowed_interfaces}")

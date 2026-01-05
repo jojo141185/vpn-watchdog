@@ -6,19 +6,37 @@ import os
 import sys
 
 # =============================================================================
-# CRITICAL FIX FOR GNOME / PYINSTALLER
+# CRITICAL FIX FOR LINUX / GNOME / PYINSTALLER
 # =============================================================================
-# PyInstaller sets 'GSETTINGS_SCHEMA_DIR' to its internal temp directory.
-# This causes crashes on GNOME (GLib-GIO-ERROR) because system schemas
-# are missing or mismatched. We remove this variable so the app uses the
-# system schemas (/usr/share/glib-2.0/schemas).
+# PyInstaller bundles glib schemas (from the build OS) which are often 
+# incompatible with the target host system (causing GLib-GIO-ERROR).
+# We must force the app to ignore bundled schemas and use the system ones.
 # =============================================================================
 if getattr(sys, 'frozen', False):
+    # 1. Remove GSETTINGS_SCHEMA_DIR so it defaults to system paths
     if 'GSETTINGS_SCHEMA_DIR' in os.environ:
         del os.environ['GSETTINGS_SCHEMA_DIR']
+    
+    # 2. Clean XDG_DATA_DIRS
+    # PyInstaller prepends its temp directory (sys._MEIPASS) to XDG_DATA_DIRS.
+    # This makes GLib look for schemas in the temp folder first.
+    # We filter out the temp path to force lookups in /usr/share and ~/.local/share.
+    if 'XDG_DATA_DIRS' in os.environ:
+        meipass = sys._MEIPASS
+        # Split paths, filter out the PyInstaller temp dir, join back
+        paths = os.environ['XDG_DATA_DIRS'].split(os.pathsep)
+        clean_paths = [p for p in paths if not p.startswith(meipass)]
+        os.environ['XDG_DATA_DIRS'] = os.pathsep.join(clean_paths)
 
 # Load Modules
 from config import ConfigManager
+# Import utils first to init backend before GUI imports
+import utils 
+
+# --- INIT LINUX BACKEND (Ayatana/AppIndicator) ---
+# Must be called before importing pystray/gui via core
+utils.setup_linux_backend()
+
 from core import VPNChecker
 from gui import TrayApp, SettingsDialog
 
@@ -48,7 +66,6 @@ class Application:
         self.paused = False
         self.pause_until = None
         logger.info("Monitoring resumed.")
-        # Immediate check follows in loop
 
     def stop(self):
         self.running = False
