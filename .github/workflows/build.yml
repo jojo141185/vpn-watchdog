@@ -16,7 +16,7 @@ on:
         type: choice
         options:
           - all
-          - ubuntu-20.04
+          - ubuntu-24.04
           - windows-latest
           - macos-latest
 
@@ -30,10 +30,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Use Ubuntu 20.04 for better backward compatibility of Linux binaries
-        os: [ubuntu-20.04, windows-latest, macos-latest]
+        # Use Ubuntu 24.04 for better backward compatibility of Linux binaries
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-24.04
             os_name: linux
             setup_script: setup.sh
             binary_name: vpn-watchdog
