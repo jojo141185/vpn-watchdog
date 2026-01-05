@@ -129,11 +129,17 @@ jobs:
 
       # --- INSTALL DEPS (Ensure Ayatana & Legacy dev libs) ---
       - name: Install System Dependencies (Linux)
-        if: matrix.os == 'ubuntu-20.04' && steps.check_filter.outputs.skip != 'true'
+        if: matrix.os_name == 'linux' && steps.check_filter.outputs.skip != 'true'
         run: |
           sudo apt-get update
-          # Install BOTH legacy and modern indicator dev libraries to ensure compilation hooks find them
+          # Install build dependencies for PyGObject and Cairo, plus AppIndicator libs
+          # libcairo2-dev, libgirepository1.0-dev, pkg-config, and python3-dev are REQUIRED for building PyGObject
           sudo apt-get install -y \
+            libcairo2-dev \
+            libgirepository1.0-dev \
+            pkg-config \
+            python3-dev \
+            libgtk-3-dev \
             gir1.2-appindicator3-0.1 \
             libappindicator3-dev \
             libayatana-appindicator3-dev \
