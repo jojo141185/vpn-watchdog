@@ -1,6 +1,6 @@
 # 🛡️ VPN Watchdog
 
-A lightweight, cross-platform system tray application that monitors your VPN connection security.
+A modular, cross-platform system tray application that monitors your VPN connection security using multiple independent guards.
 
 ![License](https://img.shields.io/github/license/jojo141185/vpn-watchdog)
 ![Release](https://img.shields.io/github/v/release/jojo141185/vpn-watchdog)
@@ -13,18 +13,41 @@ A lightweight, cross-platform system tray application that monitors your VPN con
 ## Features
 
 - **Visual Feedback:**
-  - 🟢 **Green:** Protected (All active traffic flows through VPN).
-  - 🔴 **Red:** Unsafe! (VPN dropped or traffic bypasses tunnel).
+  - 🟢 **Green:** Protected (All active checks passed).
+  - 🔴 **Red:** Unsafe! (VPN dropped, IP leak, or DNS leak detected).
   - 🟡 **Yellow:** Monitoring paused.
-- **High Performance & Configurable:**
-  - Choose between **Performance Mode** (Zero CPU load via memory readout) and **Precision Mode** (Exact Kernel Routing checks).
-  - Defaults to the best strategy for your OS automatically.
-- **Robust Checks:**
-  - **Dual-Stack Monitoring:** Checks routing for both **IPv4** and **IPv6**. If your VPN supports IPv4 but your OS leaks traffic via IPv6, the app will detect it.
-  - **Fail-Safe:** If the network hangs or detection times out (e.g., after Sleep Mode), it defaults to "Unsafe" to warn you.
-- **GUI Config:** Interface selection via Checkboxes.
-- **Auto-Pause:** Pause monitoring for 5m, 10m, 1h, 12h via Context Menu.
-- **Autostart:** Automatically starts with your system (Linux .desktop, Windows Registry/Startup, Mac LaunchAgent).
+  - **Country Overlay:** Shows your current public IP country code directly on the icon.
+- **Dashboard:**
+  - Real-time Status Overview of all modules.
+  - Live Logs viewer.
+- **3 Independent Detection Modules:**
+  1.  **Routing Guard:** Monitors local network interfaces.
+  2.  **Connectivity Guard:** Monitors Public IP, ISP, and Location.
+  3.  **DNS Guard:** Checks for DNS Leaks (DNS servers belonging to home ISP).
+
+## How it works (The 3 Guards)
+
+The app combines three security layers. You can enable/disable each independently in Settings.
+
+### 1. Routing Guard (Local Interface)
+Ensures that your operating system is routing traffic through the correct network adapter (e.g., `tun0`, `NordLynx`).
+*   **Performance Mode (Windows):** Reads the Default Gateway from memory (Zero CPU load).
+*   **Precision Mode (Linux/Mac):** Queries Kernel Routing Table for exact paths.
+*   **Why use it?** Immediate detection if the VPN client crashes or disconnects locally.
+
+### 2. Connectivity Guard (Public IP)
+Verifies how the internet "sees" you by querying an external API (e.g., ipwho.is).
+*   **Strategies:**
+    *   **Geo-Fence:** Alerts if your country matches your "Home Country" (e.g., DE).
+    *   **ISP Blacklist:** Alerts if your detected ISP matches your "Home ISP" (e.g., Telekom).
+    *   **DynDNS Match:** Resolves your home DynDNS and alerts if your public IP matches it (Proof you are not tunneling).
+*   **Why use it?** Essential for **Router-based VPNs** where the local PC interface stays "Ethernet" but the public IP should change.
+
+### 3. DNS Guard (Leak Protection)
+Performs a DNS Leak Test (similar to dnsleaktest.com) in the background.
+*   **Mechanism:** Resolves random subdomains to identify which DNS servers answer the query.
+*   **Alert:** Turns RED if a DNS server owned by your "Home ISP" is detected.
+*   **Why use it?** Prevents your ISP from logging your browsing history even if the VPN is active.
 
 ## Installation
 
@@ -48,7 +71,7 @@ bash <(curl -sL https://raw.githubusercontent.com/jojo141185/vpn-watchdog/main/s
 
 **Linux specific:**
 ```bash
-sudo apt install python3-tk gir1.2-appindicator3-0.1 libappindicator3-1
+sudo apt install python3-tk gir1.2-appindicator3-0.1 libappindicator3-1 python3-pil.imagetk
 ```
 
 ### Setup
@@ -80,30 +103,6 @@ pip install pyinstaller
 pyinstaller --onefile --windowed --clean --name="vpn-watchdog" src/main.py
 ```
 The output file will be in the `dist/` folder.
-
-## How it works (Detection Logic)
-The app runs a check every 5 seconds. You can configure the **Detection Method** in settings:
-
-1.  **Auto (Recommended):**
-    *   **Windows:** Uses *Performance Mode* (to avoid high CPU usage caused by PowerShell).
-    *   **Linux/macOS:** Uses *Precision Mode* (native kernel commands are fast and precise).
-
-2.  **Performance Mode:**
-    *   Reads the **Default Gateway** directly from memory using the `netifaces` library.
-    *   Extremely fast (< 0.1ms), Zero CPU load.
-    *   Ideal for Windows.
-
-3.  **Precision Mode:**
-    *   Queries the Kernel Routing Table for specific targets (`1.1.1.1` and IPv6 `2606:4700:4700::1111`).
-    *   Detects Split-Tunneling configurations more accurately.
-    *   Uses `ip route` (Linux), `route get` (macOS), or `Find-NetRoute` (Windows/PowerShell).
-
-**Verification Process:**
-*   **Dual-Stack:** It validates interfaces for **IPv4** AND **IPv6**. If IPv6 is enabled but bypassing the VPN (Leak), it alerts you.
-*   **Status Decision:**
-    *   **GREEN:** Active routes found, and **ALL** interfaces used for Internet traffic match your "Valid Interfaces" list.
-    *   **RED:** Traffic is flowing through a non-allowed interface (e.g., direct Wi-Fi/Ethernet).
-    *   **RED (Fail-Safe):** If no route/gateway is found (e.g., network cable unplugged), it defaults to a warning state.
 
 ## License
 MIT License

@@ -8,9 +8,35 @@ CONFIG_FILE = os.path.expanduser("~/.config/vpn-watchdog/config.json")
 
 DEFAULT_CONFIG = {
     "log_level": "INFO",
-    "valid_interfaces": [], # Stores interfaces checked by the user
-    "check_interval": 5,
-    "detection_mode": "auto" # Options: 'auto', 'performance', 'precision'
+    "check_interval": 5,           # Global Loop Interval (Seconds)
+    
+    # --- Module 1: Routing Guard (Interfaces) ---
+    "routing_check_enabled": True,
+    "valid_interfaces": [], 
+    "detection_mode": "auto",      # auto, performance, precision
+    
+    # --- Module 2: Connectivity Guard (Public IP) ---
+    "public_check_enabled": False,
+    "public_check_interval": 60,   
+    "public_check_provider": "ipwhois", # ipwhois, ipapi, custom
+    
+    # Custom Provider Settings
+    "public_custom_url": "",       
+    "public_custom_key_ip": "ip",           
+    "public_custom_key_country": "country", 
+    "public_custom_key_isp": "isp",         
+    
+    "public_check_strategy": "combined", # country, isp, combined, ip_match
+    
+    # Strategy Parameters
+    "target_country": "",          # e.g. "DE" (Home Country)
+    "home_isp": "",                # e.g. "Telekom" (Home ISP)
+    "home_dyndns": "",             # e.g. "myhome.dyndns.org" or static IP
+
+    # --- Module 3: DNS Leak Guard ---
+    "dns_check_enabled": False,
+    "dns_check_interval": 120,     # Default 2 mins (API intensive)
+    "dns_alert_on_home_isp": True  # Alert if DNS server belongs to Home ISP
 }
 
 class ConfigManager:
