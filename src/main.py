@@ -79,7 +79,7 @@ class Application:
                 # 1. Safety Check: If no interfaces are configured
                 valid_ifaces = self.cfg.get("valid_interfaces")
                 if not valid_ifaces:
-                    logger.warning("No interfaces configured. Waiting for configuration...")
+                    # Don't spam logs, just wait
                     if self.status != "initializing":
                         self.status = "initializing"
                         self.gui.update_icon(self.status)
@@ -93,7 +93,7 @@ class Application:
                         time.sleep(1)
                         continue
 
-                # The actual check
+                # The actual check (Now includes Timeouts in core.py)
                 is_secure = self.checker.is_secure()
                 new_status = "safe" if is_secure else "unsafe"
 
@@ -101,7 +101,11 @@ class Application:
                 if new_status != self.status:
                     logger.info(f"Status change: {self.status} -> {new_status}")
                     self.status = new_status
-                    self.gui.update_icon(self.status)
+                    # Wrap GUI update in try/except to prevent thread crashes
+                    try:
+                        self.gui.update_icon(self.status)
+                    except Exception as e:
+                        logger.error(f"Failed to update Icon: {e}")
                 
                 # Check Interval
                 interval = int(self.cfg.get("check_interval"))
@@ -109,6 +113,7 @@ class Application:
                 
             except Exception as e:
                 logger.error(f"Loop Error: {e}")
+                # Wait a bit before retrying to prevent CPU spikes in error loops
                 time.sleep(5)
 
     def start(self):
@@ -116,6 +121,7 @@ class Application:
         if not self.cfg.get("valid_interfaces"):
             logger.info("First run or no interfaces selected. Opening Settings...")
             try:
+                # Just catch any potential GUI startup errors
                 SettingsDialog(self.cfg)
             except Exception as e:
                 logger.error(f"Could not start Settings Dialog: {e}")
