@@ -5,6 +5,9 @@ __pycache__/
 venv/
 .env
 
+# local test files
+tests/
+
 # Local Build and Directory (Everything goes here now)
 local_builds/
 build_local.sh

@@ -54,6 +54,9 @@ class Application:
         
         # GUI Instance
         self.gui = TrayApp(self, self.cfg)
+        
+        # Flags
+        self.settings_open = False
 
     def pause(self, minutes):
         self.paused = True
@@ -71,19 +74,52 @@ class Application:
         self.running = False
         self.gui.stop()
         os._exit(0)
+    
+    def open_settings(self):
+        """Safely opens settings avoiding multiple instances"""
+        if self.settings_open:
+            return
+        
+        logger.info("Opening Settings...")
+        self.settings_open = True
+        try:
+            # This blocks the thread calling it, so we usually run it in a separate thread if called from loop
+            # BUT: Tkinter usually wants main thread. Since pystray controls main, 
+            # we open this and it will block until closed. This is fine for settings.
+            SettingsDialog(self.cfg)
+        except Exception as e:
+            logger.error(f"Error in Settings: {e}")
+        finally:
+            self.settings_open = False
 
     def monitor_loop(self):
         logger.info("Loop started.")
+        
+        # Initial wait to let GUI settle
+        time.sleep(2)
+
         while self.running:
             try:
-                # 1. Safety Check: If no interfaces are configured
+                # 1. Check if configured
                 valid_ifaces = self.cfg.get("valid_interfaces")
+                
+                # FIRST RUN LOGIC:
+                # If no interfaces are set, we assume first run.
+                # We trigger the settings dialog ONCE.
+                if not valid_ifaces and not self.settings_open:
+                     logger.info("No config detected. Triggering settings...")
+                     # Use pystray's menu action mechanism or just run it?
+                     # Since we are in a background thread, running GUI directly is dangerous for Tkinter.
+                     # However, creating a new Tk root in a thread works on Windows usually, 
+                     # but let's just warn and wait for user to click tray icon.
+                     self.status = "initializing"
+                     self.gui.update_icon("paused") # Use pause icon to indicate 'idle'
+                     self.gui.icon.notify("VPN Watchdog", "Please configure network interfaces via the Tray Menu.")
+                     time.sleep(10) # Remind every 10s
+                     continue
+                
                 if not valid_ifaces:
-                    # Don't spam logs, just wait
-                    if self.status != "initializing":
-                        self.status = "initializing"
-                        self.gui.update_icon(self.status)
-                    time.sleep(2)
+                    time.sleep(1)
                     continue
 
                 if self.paused:
@@ -93,15 +129,13 @@ class Application:
                         time.sleep(1)
                         continue
 
-                # The actual check (Now includes Timeouts in core.py)
+                # The actual check (High Performance via netifaces)
                 is_secure = self.checker.is_secure()
                 new_status = "safe" if is_secure else "unsafe"
 
-                # UI Update only on change
                 if new_status != self.status:
                     logger.info(f"Status change: {self.status} -> {new_status}")
                     self.status = new_status
-                    # Wrap GUI update in try/except to prevent thread crashes
                     try:
                         self.gui.update_icon(self.status)
                     except Exception as e:
@@ -113,23 +147,19 @@ class Application:
                 
             except Exception as e:
                 logger.error(f"Loop Error: {e}")
-                # Wait a bit before retrying to prevent CPU spikes in error loops
                 time.sleep(5)
 
     def start(self):
-        # 0. FIRST RUN CHECK
-        if not self.cfg.get("valid_interfaces"):
-            logger.info("First run or no interfaces selected. Opening Settings...")
-            try:
-                # Just catch any potential GUI startup errors
-                SettingsDialog(self.cfg)
-            except Exception as e:
-                logger.error(f"Could not start Settings Dialog: {e}")
-
         # Start Background Thread
         t = threading.Thread(target=self.monitor_loop, daemon=True)
         t.start()
         
+        # Check config on start - if missing, we just launch the tray.
+        # The Monitor Loop will notify the user to open settings.
+        # This prevents the process exit issue.
+        if not self.cfg.get("valid_interfaces"):
+             logger.info("First run detected. Please open settings from Tray.")
+
         # GUI blocks Main Thread
         try:
             self.gui.run()

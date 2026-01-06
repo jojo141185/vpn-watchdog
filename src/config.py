@@ -9,7 +9,8 @@ CONFIG_FILE = os.path.expanduser("~/.config/vpn-watchdog/config.json")
 DEFAULT_CONFIG = {
     "log_level": "INFO",
     "valid_interfaces": [], # Stores interfaces checked by the user
-    "check_interval": 5
+    "check_interval": 5,
+    "detection_mode": "auto" # Options: 'auto', 'performance', 'precision'
 }
 
 class ConfigManager:

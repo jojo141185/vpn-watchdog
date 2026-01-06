@@ -7,7 +7,6 @@ from PIL import Image, ImageDraw
 from pystray import Icon as TrayIcon, Menu, MenuItem
 import utils
 from core import VPNChecker 
-
 # Import dynamic version info
 import version 
 
@@ -54,7 +53,6 @@ class ScrollableFrame(ttk.Frame):
 
     def _on_mousewheel(self, event):
         # Windows/macOS
-        # On macOS event.delta needs scaling usually, but standard tk works often roughly
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def _on_linux_scroll_up(self, event):
@@ -67,12 +65,14 @@ class ScrollableFrame(ttk.Frame):
 class SettingsDialog:
     def __init__(self, config_manager):
         self.cfg = config_manager
+        # Use a fresh checker instance here to force-refresh list if needed
         self.checker = VPNChecker(self.cfg) 
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog Settings")
         
-        w, h = 550, 600
+        # Slightly taller to accommodate new options
+        w, h = 550, 650
         ws, hs = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(f"{w}x{h}+{int((ws-w)/2)}+{int((hs-h)/2)}")
         
@@ -104,6 +104,10 @@ class SettingsDialog:
 
         self.root.attributes('-topmost', True)
         self.root.after_idle(self.root.attributes, '-topmost', False)
+        
+        # Handle manual close via X button
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
         self.root.mainloop()
 
     # --- TAB 1: GENERAL ---
@@ -121,7 +125,39 @@ class SettingsDialog:
         ttk.Checkbutton(grp_sys, text="Start automatically with System", 
                         variable=self.var_autostart).pack(anchor="w")
 
-        # 2. Logging
+        # 2. Advanced Detection Settings
+        grp_adv = ttk.LabelFrame(content, text=" Advanced ", padding=15)
+        grp_adv.pack(fill="x", pady=10)
+
+        ttk.Label(grp_adv, text="Detection Method:").pack(anchor="w")
+        self.var_mode = tk.StringVar(value=self.cfg.get("detection_mode"))
+        
+        # Map config values to display names
+        modes = {
+            "Auto (Recommended)": "auto",
+            "Performance (Fastest)": "performance",
+            "Precision (Slower)": "precision"
+        }
+        # Invert dict for lookups
+        self.modes_map = {v: k for k, v in modes.items()}
+        self.modes_rev = modes
+        
+        cb_mode = ttk.Combobox(grp_adv, textvariable=self.var_mode, 
+                               values=list(modes.keys()), state="readonly")
+        
+        # Set current selection correctly based on config value
+        current_val = self.cfg.get("detection_mode")
+        if current_val in self.modes_map:
+            cb_mode.set(self.modes_map[current_val])
+        else:
+            cb_mode.set("Auto (Recommended)")
+            
+        cb_mode.pack(fill="x", pady=5)
+        
+        ttk.Label(grp_adv, text="Use 'Performance' on Windows to reduce CPU load.\nUse 'Precision' on Linux/Mac for best accuracy.", 
+                  font=("Arial", 8), foreground="gray").pack(anchor="w")
+
+        # 3. Logging
         grp_log = ttk.LabelFrame(content, text=" Debugging ", padding=15)
         grp_log.pack(fill="x", pady=10)
         
@@ -160,7 +196,7 @@ class SettingsDialog:
         self.iface_vars = {} 
 
         # Sort interfaces by name
-        all_ifaces.sort(key=lambda x: x['name'])
+        all_ifaces.sort(key=lambda x: str(x['name']))
 
         # Styles
         bg_color = "#ffffff"
@@ -190,13 +226,18 @@ class SettingsDialog:
             cb = ttk.Checkbutton(row, text=f"{name}", variable=var, style="White.TCheckbutton")
             cb.pack(side="left")
             
-            lbl_ip = ttk.Label(row, text=f"({ip})", foreground="gray", font=("Arial", 8), style="White.TLabel")
+            info_text = f"({ip})"
+            # If name looks like a GUID, maybe show it's unresolved
+            if "{" in name and "}" in name:
+                info_text += " [Unresolved ID]"
+            
+            lbl_ip = ttk.Label(row, text=info_text, foreground="gray", font=("Arial", 8), style="White.TLabel")
             lbl_ip.pack(side="left", padx=5)
 
         self.iface_list_area.update_idletasks()
         self.scroll_container.canvas.configure(scrollregion=self.scroll_container.canvas.bbox("all"))
 
-    # --- TAB 3: ABOUT (UPDATED WITH BUILD INFO) ---
+    # --- TAB 3: ABOUT ---
     def build_about_tab(self):
         content = ttk.Frame(self.tab_about, padding=20)
         content.pack(fill="both", expand=True)
@@ -215,13 +256,16 @@ class SettingsDialog:
         btn_donate.pack(fill="x", pady=5)
 
         # Build Details (Commit Hash & Date)
-        # Using a smaller font for technical details
         details_text = (
             f"Build Date: {version.BUILD_DATE}\n"
             f"Commit: {version.COMMIT_HASH}\n"
             f"Python: {platform.python_version()} | OS: {platform.system()}"
         )
         ttk.Label(content, text=details_text, font=("Courier", 8), foreground="gray", justify="center").pack(side="bottom", pady=20)
+    
+    def on_close(self):
+        # Just destroy the window, do NOT exit app
+        self.root.destroy()
 
     # --- SAVE ---
     def save_and_close(self):
@@ -229,6 +273,11 @@ class SettingsDialog:
             utils.enable_autostart()
         else:
             utils.disable_autostart()
+        
+        # Save Detection Mode
+        display_val = self.var_mode.get() # e.g. "Auto (Recommended)"
+        config_val = self.modes_rev.get(display_val, "auto")
+        self.cfg.set("detection_mode", config_val)
         
         self.cfg.set("log_level", self.var_log.get())
         
@@ -239,7 +288,7 @@ class SettingsDialog:
         
         self.cfg.set("valid_interfaces", selected_interfaces)
         
-        logger.info(f"Settings saved. Valid interfaces: {selected_interfaces}")
+        logger.info(f"Settings saved. Mode: {config_val}, Valid interfaces: {selected_interfaces}")
         self.root.destroy()
 
 
@@ -277,7 +326,7 @@ class TrayApp:
             menu_items.append(MenuItem('PAUSE Monitoring', submenu))
 
         menu_items.append(Menu.SEPARATOR)
-        menu_items.append(MenuItem('Settings & Info', lambda i, it: SettingsDialog(self.cfg)))
+        menu_items.append(MenuItem('Settings & Info', lambda i, it: self.logic.open_settings()))
         menu_items.append(MenuItem('Exit', lambda i, it: self.logic.stop()))
         
         self.icon.menu = Menu(*menu_items)
