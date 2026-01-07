@@ -33,7 +33,10 @@ class VPNChecker:
 
         # Latest Aggregated State (Safe Defaults)
         self.current_state = {
-            "secure": True,
+            "status": "initializing", # safe, unsafe, scanning, initializing
+            "global_secure": True,
+            "summary_details": "Init",
+            "country": "??",
             "routing": {"secure": True, "details": "Init", "enabled": False},
             "public": {"secure": True, "data": {}, "enabled": False},
             "dns": {"secure": True, "data": {}, "enabled": False}
@@ -151,8 +154,7 @@ class VPNChecker:
     # --- MAIN CHECK ROUTINE ---
     def check_status(self):
         """
-        Orchestrates all checks. Updates internal state.
-        Returns aggregate boolean secure state for Icon.
+        Orchestrates all checks. Updates and returns the single unified state object.
         """
         now = time.time()
 
@@ -194,6 +196,7 @@ class VPNChecker:
         pb_en = self.cfg.get("public_check_enabled")
         if pb_en:
             interval = int(self.cfg.get("public_check_interval"))
+            # Triggers immediately on first run because last_public_check is initialized to 0
             if now - self.last_public_check > interval:
                 self.public_checker.run_check_async()
                 self.last_public_check = now
@@ -201,10 +204,16 @@ class VPNChecker:
         p_state = self.public_checker.get_state()
         public_secure = p_state["is_secure"]
         
+        # Determine "Main" country for Icon display (prefer v4, else v6)
+        main_country = p_state["ipv4"].get("country")
+        if not main_country or main_country == "??":
+            main_country = p_state["ipv6"].get("country", "??")
+        
         # 3. DNS CHECK (Async Trigger)
         dns_en = self.cfg.get("dns_check_enabled")
         if dns_en:
             interval = int(self.cfg.get("dns_check_interval"))
+            # Triggers immediately on first run
             if now - self.last_dns_check > interval:
                 self.dns_checker.run_check_async()
                 self.last_dns_check = now
@@ -212,21 +221,48 @@ class VPNChecker:
         d_state = self.dns_checker.get_state()
         dns_secure = d_state["is_secure"]
 
-        # Aggregate Result
-        # Strategy: If a module is enabled, it MUST be secure.
+        # --- INITIALIZATION & SECURITY LOGIC ---
+        
+        # A. Check for known failures (FAIL-FAST)
+        # If any enabled module reports insecure, we are globally insecure immediately.
         is_globally_secure = True
         
-        if rt_en and not local_secure: is_globally_secure = False
-        if pb_en and not public_secure: is_globally_secure = False
-        if dns_en and not dns_secure: is_globally_secure = False
+        if rt_en and local_secure is False: is_globally_secure = False
+        if pb_en and public_secure is False: is_globally_secure = False
+        if dns_en and dns_secure is False: is_globally_secure = False
         
-        # If all disabled -> Secure (Idle)
+        # B. Check for pending initialization
+        # Only relevant if we are currently considered "secure" (no known errors yet).
+        init_pending = False
+        if is_globally_secure:
+            if pb_en and not self.public_checker.has_valid_data():
+                init_pending = True
+            if dns_en and not self.dns_checker.has_valid_data():
+                init_pending = True
+
+        # C. Determine Display Status
+        effective_status = "safe"
+        
+        if not is_globally_secure:
+            effective_status = "unsafe"
+        elif init_pending:
+            effective_status = "scanning"
+        else:
+            effective_status = "safe"
+
+        # D. Update State Object
         if not (rt_en or pb_en or dns_en):
             is_globally_secure = True
+            effective_status = "safe"
 
-        # Update State Object for Dashboard
+        if not init_pending:
+            self.initial_check_done = True
+        
         self.current_state = {
-            "secure": is_globally_secure, 
+            "status": effective_status,
+            "global_secure": is_globally_secure, 
+            "summary_details": local_details,
+            "country": main_country,
             "routing": {
                 "enabled": rt_en,
                 "secure": local_secure,
@@ -244,20 +280,8 @@ class VPNChecker:
             }
         }
         
-        # Mark initialization as done after one full pass
-        self.initial_check_done = True
-        
-        # Return simple dict for main loop logging/icon update
-        return {
-            "secure": is_globally_secure,
-            "details": local_details,
-            "country": p_state.get("country", "??"),
-            "full_state": self.current_state
-        }
+        return self.current_state
 
     def get_dashboard_data(self):
         """Used by the GUI to get full details."""
-        # Inject initialization status
-        data = self.current_state.copy()
-        data["initial_check_done"] = self.initial_check_done
-        return data
+        return self.current_state

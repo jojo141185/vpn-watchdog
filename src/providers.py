@@ -8,17 +8,11 @@ class IPProvider:
     def get_name(self):
         return "Unknown"
 
-    def fetch_details(self, timeout=5, api_key=None, custom_url=None, target_ip=None):
+    def fetch_details(self, timeout=5, custom_url=None, target_ip=None):
         """
-        target_ip: Optional string. If provided, fetches details for this IP instead of self.
-        Must return a dict:
-        {
-            "ip": "1.2.3.4",
-            "country": "DE",
-            "isp": "Telekom",
-            "success": True,
-            "error": None
-        }
+        Fetches details.
+        custom_url: If provided, overrides internal URL logic (used for v4/v6 specific checks).
+        target_ip: Optional string. If provided, fetches details for this IP (server-side lookup).
         """
         raise NotImplementedError
 
@@ -26,13 +20,19 @@ class IpWhoIsProvider(IPProvider):
     def get_name(self):
         return "ipwho.is (Free, No SSL)"
 
-    def fetch_details(self, timeout=5, api_key=None, custom_url=None, target_ip=None):
+    def fetch_details(self, timeout=5, custom_url=None, target_ip=None):
         # ipwho.is supports /ip?output=json or just /?output=json
-        base_url = "http://ipwho.is/"
-        if target_ip:
-            url = f"{base_url}{target_ip}?output=json"
+        # Note: ipwho.is does not explicitly support forcing v6 via a separate free subdomain easily,
+        # but if custom_url is passed (e.g. from a user config), we use it.
+        
+        if custom_url:
+            url = custom_url
         else:
-            url = f"{base_url}?output=json"
+            base_url = "http://ipwho.is/"
+            if target_ip:
+                url = f"{base_url}{target_ip}?output=json"
+            else:
+                url = f"{base_url}?output=json"
             
         try:
             resp = requests.get(url, timeout=timeout)
@@ -56,12 +56,14 @@ class IpApiProvider(IPProvider):
     def get_name(self):
         return "ip-api.com (Free, No SSL)"
 
-    def fetch_details(self, timeout=5, api_key=None, custom_url=None, target_ip=None):
+    def fetch_details(self, timeout=5, custom_url=None, target_ip=None):
         # ip-api.com free endpoint: /json/{ip} or /json/
-        base = "http://ip-api.com/json/"
-        fields = "?fields=status,message,query,countryCode,isp"
-        
-        url = f"{base}{target_ip}{fields}" if target_ip else f"{base}{fields}"
+        if custom_url:
+            url = custom_url
+        else:
+            base = "http://ip-api.com/json/"
+            fields = "?fields=status,message,query,countryCode,isp"
+            url = f"{base}{target_ip}{fields}" if target_ip else f"{base}{fields}"
         
         try:
             resp = requests.get(url, timeout=timeout)
@@ -85,19 +87,22 @@ class CustomProvider(IPProvider):
     def get_name(self):
         return "Custom API (Configurable)"
 
-    def fetch_details(self, timeout=5, config=None, target_ip=None):
+    def fetch_details(self, timeout=5, config=None, custom_url=None, target_ip=None):
+        # For custom provider, 'config' dict is passed which contains keys.
+        # 'custom_url' argument overrides the url in config if passed (used for v6).
+        
         if not config:
             return {"success": False, "error": "No config provided"}
             
-        url = config.get("url")
+        url = custom_url if custom_url else config.get("url")
+        
         key_ip = config.get("key_ip", "ip")
         key_country = config.get("key_country", "country")
         key_isp = config.get("key_isp", "isp")
 
         if not url:
-            return {"success": False, "error": "No Custom URL set"}
+            return {"success": False, "error": "No URL set"}
         
-        # Simple string replacement if user puts {ip} in url, otherwise ignore target_ip for custom
         if target_ip and "{ip}" in url:
             url = url.replace("{ip}", target_ip)
         

@@ -25,6 +25,16 @@ class DnsLeakChecker:
         with self._lock:
             return self.last_result.copy()
 
+    def has_valid_data(self):
+        """
+        Returns True if the check has run at least once and produced a result.
+        """
+        with self._lock:
+            # Valid if is_secure is set (True/False) OR if an error occurred
+            has_status = self.last_result.get("is_secure") is not None
+            has_error = self.last_result.get("error") is not None
+            return has_status or has_error
+
     def run_check_async(self):
         if self.is_checking: return
         t = threading.Thread(target=self._perform_check, daemon=True)

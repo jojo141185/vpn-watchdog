@@ -21,7 +21,8 @@ DEFAULT_CONFIG = {
     "public_check_provider": "ipwhois", # ipwhois, ipapi, custom
     
     # Custom Provider Settings
-    "public_custom_url": "",       
+    "public_custom_url": "",       # Primary / IPv4
+    "public_custom_url_v6": "",    # IPv6 Specific
     "public_custom_key_ip": "ip",           
     "public_custom_key_country": "country", 
     "public_custom_key_isp": "isp",         

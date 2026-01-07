@@ -328,28 +328,32 @@ class StatusWindow:
             self.root.after_idle(self.refresh_logs)
 
     def update_ui(self):
+        # Prevent errors if window is closed
         if not self.is_running: return
+        if not self.root.winfo_exists(): return
 
         data = self.checker.get_dashboard_data()
+        current_status = data.get("status", "unsafe")
         
-        # Check Initialization Status
-        if not data.get("initial_check_done", False):
+        # Check Initialization Status for UI
+        if current_status == "scanning" or current_status == "initializing":
             self.lbl_global.configure(text="SCANNING...", foreground="orange")
-            # Loop for cards to show hourglass
-            for card in [self.card_route, self.card_conn, self.card_dns]:
-                card["icon"].configure(text="⏳", foreground="orange")
-                card["status"].configure(text="Pending...", foreground="gray")
-            self.root.after(1000, self.update_ui)
-            return
-
-        g_secure = data["secure"]
-        self.lbl_global.configure(text="SECURE" if g_secure else "VULNERABLE", foreground="green" if g_secure else "red")
         
+        g_secure = data["global_secure"]
+        if current_status == "unsafe":
+             self.lbl_global.configure(text="VULNERABLE", foreground="red")
+        elif current_status == "safe":
+             self.lbl_global.configure(text="SECURE", foreground="green")
+
         def update_vis(card, info):
             if not info["enabled"]:
                 card["icon"].configure(text="⚪", foreground="gray")
                 card["status"].configure(text="Disabled", foreground="gray")
                 self.set_card_details(card, None)
+            elif info["secure"] is None:
+                # Pending
+                card["icon"].configure(text="⏳", foreground="orange")
+                card["status"].configure(text="Pending...", foreground="gray")
             elif info["secure"]:
                 card["icon"].configure(text="🟢", foreground="green")
                 card["status"].configure(text="Secure", foreground="green")
@@ -368,12 +372,25 @@ class StatusWindow:
         update_vis(self.card_conn, p)
         if p["enabled"]:
             pd = p["data"]
-            details = {
-                "IP": pd.get("ipv4", "N/A"),
-                "Country": pd.get("country", "??"),
-                "ISP": pd.get("isp", "N/A")
-            }
-            if pd.get("error"): details["Error"] = pd.get("error")
+            # ipv4 / ipv6 specific details
+            v4 = pd.get("ipv4", {})
+            v6 = pd.get("ipv6", {})
+            
+            details = {}
+            if v4.get("ip"):
+                details["IPv4"] = f"{v4.get('ip')} ({v4.get('country')})"
+                details["v4 ISP"] = v4.get("isp")
+            elif v4.get("error"):
+                details["IPv4"] = f"Error: {v4.get('error')}"
+                
+            if v6.get("ip"):
+                details["IPv6"] = f"{v6.get('ip')} ({v6.get('country')})"
+                details["v6 ISP"] = v6.get("isp")
+            elif v6.get("error"):
+                details["IPv6"] = f"Error: {v6.get('error')}"
+            
+            if not details: details = {"Info": "Waiting for data..."}
+            
             self.set_card_details(self.card_conn, details)
 
         # DNS
@@ -394,7 +411,8 @@ class StatusWindow:
 
     def on_close(self):
         self.is_running = False
-        self.root.destroy()
+        if self.root.winfo_exists():
+            self.root.destroy()
         if self.on_close_callback:
             self.on_close_callback()
 
@@ -543,9 +561,17 @@ class SettingsDialog:
         
         self.frm_custom = ttk.Frame(content)
         self.frm_custom.pack(fill="x", pady=5)
-        ttk.Label(self.frm_custom, text="Custom API URL:").pack(anchor="w")
+        
+        # IPv4 / Default URL
+        ttk.Label(self.frm_custom, text="Custom API URL (IPv4/Primary):").pack(anchor="w")
         self.var_cust_url = tk.StringVar(value=self.cfg.get("public_custom_url"))
         ttk.Entry(self.frm_custom, textvariable=self.var_cust_url).pack(fill="x", pady=2)
+
+        # IPv6 URL
+        ttk.Label(self.frm_custom, text="Custom API URL (IPv6 Specific):").pack(anchor="w")
+        self.var_cust_url_v6 = tk.StringVar(value=self.cfg.get("public_custom_url_v6"))
+        ttk.Entry(self.frm_custom, textvariable=self.var_cust_url_v6).pack(fill="x", pady=2)
+        
         frm_keys = ttk.Frame(self.frm_custom)
         frm_keys.pack(fill="x", pady=2)
         ttk.Label(frm_keys, text="JSON Keys -> IP:").pack(side="left")
@@ -603,7 +629,8 @@ class SettingsDialog:
                 provider = providers.get_provider("ipwhois")
                 data = provider.fetch_details(target_ip=target_ip)
                 if data["success"] and data.get("isp"):
-                    self.var_home_isp.set(data.get("isp"))
+                    # CRITICAL FIX: Update GUI variable from MAIN thread only
+                    self.root.after(0, lambda: self.var_home_isp.set(data.get("isp")))
             except Exception: pass
         threading.Thread(target=run_detect, daemon=True).start()
 
@@ -682,7 +709,11 @@ class SettingsDialog:
         self.cfg.set("public_check_interval", int(self.var_pub_interval.get()))
         self.cfg.set("public_check_provider", self.prov_rev.get(self.cb_prov.get(), "ipwhois"))
         self.cfg.set("public_check_strategy", self.strats_rev.get(self.cb_strat.get(), "combined"))
+        
+        # New URL fields
         self.cfg.set("public_custom_url", self.var_cust_url.get())
+        self.cfg.set("public_custom_url_v6", self.var_cust_url_v6.get())
+        
         self.cfg.set("public_custom_key_ip", self.var_key_ip.get())
         self.cfg.set("public_custom_key_country", self.var_key_country.get())
         self.cfg.set("public_custom_key_isp", self.var_key_isp.get())
@@ -763,6 +794,8 @@ class TrayApp:
         if status == "safe": color = "green"
         elif status == "unsafe": color = "red"
         elif status == "paused": color = "yellow"
+        elif status == "scanning": color = "gray"
+        elif status == "initializing": color = "gray"
         
         # Tray Icon -> Style="dot"
         self.icon.icon = generate_icon_image(color, country, style="dot")
@@ -773,12 +806,16 @@ class TrayApp:
         if status == "paused":
              rem = pause_until.strftime('%H:%M') if pause_until else "?"
              details.append(f"Paused until {rem}")
+        elif status == "scanning" or status == "initializing":
+             details.append("Initializing Checks...")
         else:
              if state["routing"]["enabled"]:
                  details.append(f"Local: {'OK' if state['routing']['secure'] else 'LEAK'}")
              if state["public"]["enabled"]:
+                 # Just show main country in tooltip to keep it short
                  d = state["public"]["data"]
-                 details.append(f"Pub: {d.get('ipv4')} ({d.get('country')})")
+                 c_str = d.get("ipv4", {}).get("country", "??")
+                 details.append(f"Pub: {c_str}")
              if state["dns"]["enabled"]:
                  details.append(f"DNS: {'OK' if state['dns']['secure'] else 'LEAK'}")
         if details: title += "\n" + "\n".join(details)

@@ -91,26 +91,31 @@ class Application:
                         continue
 
                 # 3. Time Check (Local Interval)
-                # We loop every 1s to allow responsive GUI/Pause, but only check at interval
                 now = time.time()
                 interval = int(self.cfg.get("check_interval"))
+                
+                # OPTIMIZATION: If we are scanning (gray icon), we poll faster (every 1s)
+                # to update the icon immediately when API results arrive.
+                # Since 'status' is now determined by core, we check self.status which is updated below.
+                if self.status == "scanning" or self.status == "initializing":
+                    interval = 1
+                    
                 if now - self.last_check_time < interval:
-                    time.sleep(1)
+                    time.sleep(0.5) 
                     continue
                 
                 self.last_check_time = now
 
                 # 4. Perform Checks
-                # check_status() handles local + public logic internally
-                result = self.checker.check_status()
+                # The result is now the single unified state object
+                state_obj = self.checker.check_status()
                 
-                is_secure = result["secure"]
-                country = result.get("country", "??")
-                
-                new_status = "safe" if is_secure else "unsafe"
+                new_status = state_obj.get("status", "unsafe") # safe, unsafe, scanning
+                country = state_obj.get("country", "??")
+                details = state_obj.get("summary_details", "")
 
                 if new_status != self.status:
-                    logger.info(f"Status change: {self.status} -> {new_status} ({result['details']})")
+                    logger.info(f"Status change: {self.status} -> {new_status} ({details})")
                     self.status = new_status
                     try: self.gui.update_icon(self.status, country=country)
                     except Exception as e: logger.error(f"Failed to update Icon: {e}")
