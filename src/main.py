@@ -126,11 +126,14 @@ class Application:
                 if new_status != self.status:
                     logger.info(f"Status change: {self.status} -> {new_status} ({details})")
                     self.status = new_status
-                    try: self.gui.update_icon(self.status, country=country)
+                    try: 
+                        # notify on change only
+                        self.gui.update_icon(self.status, country=country, notify=True)
                     except Exception as e: logger.error(f"Failed to update Icon: {e}")
                 else:
                     # Update icon anyway if country changed or just to refresh tooltip
-                    try: self.gui.update_icon(self.status, country=country)
+                    try: 
+                        self.gui.update_icon(self.status, country=country, notify=False)
                     except: pass
                 
             except Exception as e:

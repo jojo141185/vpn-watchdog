@@ -477,6 +477,14 @@ class StatusWindow:
             
             p_data = {}
             
+            # Helper function to sanitize huge error messages
+            def clean_err(e):
+                s = str(e)
+                if "NameResolutionError" in s or "ConnectionPool" in s or "getaddrinfo" in s:
+                    return "Unreachable / No Net"
+                if len(s) > 25: return s[:22] + "..."
+                return s
+
             # Section: IPv4
             if v4.get("ip"):
                 p_data["IPv4 Connection"] = {
@@ -485,7 +493,7 @@ class StatusWindow:
                     "ISP": v4.get("isp")
                 }
             elif v4.get("error"):
-                p_data["IPv4 Connection"] = {"Status": f"Error: {v4.get('error')}"}
+                p_data["IPv4 Connection"] = {"Status": f"Error: {clean_err(v4.get('error'))}"}
             else:
                 p_data["IPv4 Connection"] = {"Status": "Not detected"}
 
@@ -497,7 +505,7 @@ class StatusWindow:
                     "ISP": v6.get("isp")
                 }
             elif v6.get("error"):
-                p_data["IPv6 Connection"] = {"Status": f"Error: {v6.get('error')}"}
+                p_data["IPv6 Connection"] = {"Status": f"Error: {clean_err(v6.get('error'))}"}
             else:
                 p_data["IPv6 Connection"] = {"Status": "Not detected"}
             
@@ -918,7 +926,7 @@ class TrayApp:
         menu_items.append(MenuItem('Exit', lambda i, it: self.logic.stop()))
         self.icon.menu = Menu(*menu_items)
 
-    def update_icon(self, status, pause_until=None, country="??"):
+    def update_icon(self, status, pause_until=None, country="??", notify=False):
         color = "gray"
         if status == "safe": color = "green"
         elif status == "unsafe": color = "red"
@@ -975,7 +983,11 @@ class TrayApp:
                  title += f"\nDNS: {dns_lbl}"
 
         self.icon.title = title
-        if status == "unsafe": self.icon.notify("VPN ALERT", "Secure connection lost!")
+        
+        # Only notify if explicitly requested (status change) AND status is unsafe
+        if notify and status == "unsafe": 
+            self.icon.notify("VPN ALERT", "Secure connection lost!")
+            
         self.update_menu()
 
     def run(self):
