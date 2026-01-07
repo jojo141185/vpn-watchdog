@@ -15,7 +15,7 @@ class PublicIPChecker:
             "ipv4": None,
             "country": "??",
             "isp": "Unknown",
-            "is_secure": True, # Default to true until proven otherwise
+            "is_secure": None, # Undefined until proven otherwise
             "error": None
         }
         

@@ -24,13 +24,16 @@ class VPNChecker:
         self._guid_name_cache = {}
         self._cache_populated = False
         
+        # Initialization Flag
+        self.initial_check_done = False
+        
         # Timers
         self.last_public_check = 0
         self.last_dns_check = 0
 
-        # Latest Aggregated State (Init with 'secure' key to prevent startup crash)
+        # Latest Aggregated State (Safe Defaults)
         self.current_state = {
-            "secure": True, # Global State
+            "secure": True,
             "routing": {"secure": True, "details": "Init", "enabled": False},
             "public": {"secure": True, "data": {}, "enabled": False},
             "dns": {"secure": True, "data": {}, "enabled": False}
@@ -154,7 +157,7 @@ class VPNChecker:
         now = time.time()
 
         # 1. LOCAL ROUTING CHECK
-        local_secure = True
+        local_secure = None, # Undefined until proven otherwise
         local_details = "OK"
         active_routes_str = []
         
@@ -217,8 +220,11 @@ class VPNChecker:
         if pb_en and not public_secure: is_globally_secure = False
         if dns_en and not dns_secure: is_globally_secure = False
         
+        # If all disabled -> Secure (Idle)
+        if not (rt_en or pb_en or dns_en):
+            is_globally_secure = True
+
         # Update State Object for Dashboard
-        # Key must be 'secure' to match main.py expectation
         self.current_state = {
             "secure": is_globally_secure, 
             "routing": {
@@ -238,7 +244,10 @@ class VPNChecker:
             }
         }
         
-        # Return partial dict for main loop (compatibility)
+        # Mark initialization as done after one full pass
+        self.initial_check_done = True
+        
+        # Return simple dict for main loop logging/icon update
         return {
             "secure": is_globally_secure,
             "details": local_details,
@@ -248,4 +257,7 @@ class VPNChecker:
 
     def get_dashboard_data(self):
         """Used by the GUI to get full details."""
-        return self.current_state
+        # Inject initialization status
+        data = self.current_state.copy()
+        data["initial_check_done"] = self.initial_check_done
+        return data

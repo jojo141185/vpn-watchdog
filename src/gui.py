@@ -15,7 +15,7 @@ from core import VPNChecker
 import version 
 import providers
 
-# Safe Import for ImageTk
+# Safe Import for ImageTk (Missing on some Linux installs)
 try:
     from PIL import ImageTk
     HAS_IMAGETK = True
@@ -28,99 +28,150 @@ GITHUB_URL = "https://github.com/jojo141185/vpn-watchdog"
 DONATE_URL = "https://github.com/sponsors/jojo141185" 
 AUTHOR = "jojo141185"
 
-# --- HELPER: ICON GENERATOR (Fallback) ---
-def generate_icon_image(color_name="gray", country_code=None, size=64):
-    """Generates a PIL Image for Tray and Window Icons (Fallback)."""
+# --- HELPER: ICON GENERATOR (SHIELD or DOT) ---
+def generate_icon_image(color_name="gray", country_code=None, size=64, style="shield"):
+    """
+    Generates a PIL Image.
+    style='shield': Polygon shield (Application Window)
+    style='dot': Simple Circle/Dot (System Tray)
+    """
     width, height = size, size
     colors = { 
-        "green": (0, 255, 0, 255), 
-        "red": (255, 0, 0, 255), 
-        "yellow": (255, 255, 0, 255), 
-        "gray": (128, 128, 128, 255) 
+        "green": (0, 200, 0, 255), 
+        "red": (220, 0, 0, 255), 
+        "yellow": (255, 200, 0, 255), 
+        "gray": (100, 100, 100, 255) 
     }
     image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)
-    padding = size // 16
-    fill = colors.get(color_name, colors["gray"])
-    dc.ellipse((padding, padding, width-padding, height-padding), fill=fill)
     
-    if color_name == "green": 
-        s = size // 3
-        dc.rectangle((s, s, size-s, size-s), fill="white")
+    fill = colors.get(color_name, colors["gray"])
+    
+    if style == "shield":
+        # Draw Shield Shape
+        m = size / 64 
+        points = [
+            (10*m, 8*m),   # Top Left
+            (54*m, 8*m),   # Top Right
+            (54*m, 30*m),  # Right Side Start Curve
+            (32*m, 58*m),  # Bottom Tip
+            (10*m, 30*m)   # Left Side Start Curve
+        ]
+        dc.polygon(points, fill=fill)
+    else:
+        # Draw Dot/Circle (Classic Tray)
+        padding = size // 64
+        dc.ellipse((padding, padding, width-padding, height-padding), fill=fill)
+        # Optional inner indicator for green
+        if color_name == "green":
+            s = size // 2.5
+            inner_pad = (size - s) // 2
+            dc.rectangle((inner_pad, inner_pad, size-inner_pad, size-inner_pad), fill="white")
 
+    # Draw Text Overlay (Country Code)
+    # Only draw text if configured and size is sufficient
     if country_code and country_code != "??":
+        text = country_code.upper().strip()[:3]
+        
+        # Adjust scale based on style
+        base_scale = 0.35 if style == "shield" else 0.45
+        scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
+        
         try: 
-            font_size = int(size * 0.4)
-            fnt = ImageFont.truetype("arial.ttf", font_size)
+            font_size = int(size * scale_factor)
+            # Use Bold font for better readability on small icons
+            try:
+                fnt = ImageFont.truetype("arialbd.ttf", font_size)
+            except IOError:
+                fnt = ImageFont.truetype("arial.ttf", font_size)
         except IOError: 
             fnt = ImageFont.load_default()
-        text = country_code.upper()[:2]
+        
         try:
             bbox = dc.textbbox((0,0), text, font=fnt)
             w = bbox[2] - bbox[0]
             h = bbox[3] - bbox[1]
             x = (width - w) / 2
-            y = (height - h) / 2
-            dc.text((x+1, y+1), text, fill="black", font=fnt)
+            
+            # Vertical alignment differs by style
+            y_factor = 0.35
+            if style == "shield":
+                # Shield center is slightly higher visually
+                y_factor = 0.25 
+            
+            y = (height - h) * y_factor
+            
+            if style == "shield" and len(text) > 2: 
+                y *= 0.95 # Nudge up for long text
+            
+            # Draw Outline/Shadow for readability against color
+            outline_color = "black"
+            dc.text((x+1, y+1), text, fill=outline_color, font=fnt)
             dc.text((x, y), text, fill="white", font=fnt)
+            
         except AttributeError: 
-            dc.text((size//4, size//4), text, fill="white")
+            # Fallback for old PIL
+            dc.text((size//3, size//3), text, fill="white")
             
     return image
 
 # --- HELPER: SET WINDOW ICON (Static) ---
 def set_window_icon(root):
-    """Tries to load 'icon.png' for the window titlebar."""
+    """Sets the window icon to the Shield style."""
     if not HAS_IMAGETK: return None
     
-    # Paths to search for icon.png
+    # Check for file first, else generate
     candidates = [
-        os.path.join(os.path.dirname(__file__), 'icon.png'), # Same dir as script
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon.png'), # Root dir
-        'icon.png' # CWD
+        os.path.join(os.path.dirname(__file__), 'icon.png'),
+        'icon.png'
     ]
-    
     found_path = None
     for p in candidates:
         if os.path.exists(p):
             found_path = p
             break
-    
+            
     try:
         if found_path:
             img = Image.open(found_path)
-            photo = ImageTk.PhotoImage(img, master=root)
-            root.iconphoto(False, photo)
-            return photo # Keep ref
         else:
-            # Fallback to generated gray circle
-            gen = generate_icon_image("gray", size=32)
-            photo = ImageTk.PhotoImage(gen, master=root)
-            root.iconphoto(False, photo)
-            return photo
+            # Generate Shield Icon for Window
+            img = generate_icon_image("gray", size=32, style="shield")
+            
+        photo = ImageTk.PhotoImage(img, master=root)
+        root.iconphoto(False, photo)
+        return photo
     except Exception as e:
         logger.warning(f"Could not load window icon: {e}")
         return None
 
 # --- LOGGING HANDLER ---
 class ListLogHandler(logging.Handler):
+    """Writes logs to a persistent deque and notifies callbacks."""
     def __init__(self, buffer, callback=None):
         super().__init__()
         self.buffer = buffer # deque object
         self.callback = callback
 
     def emit(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            msg = str(record.msg)
+
         log_entry = {
             "time": self.format(record),
             "level": record.levelname,
-            "raw": record.message
+            "raw": msg
         }
         self.buffer.append(log_entry)
+        
         if self.callback:
             self.callback()
 
 # --- COMPONENT: SCROLLABLE FRAME ---
 class ScrollableFrame(ttk.Frame):
+    """Helper widget providing a scrollable container."""
     def __init__(self, container, *args, **kwargs):
         super().__init__(container, *args, **kwargs)
         self.canvas = tk.Canvas(self, borderwidth=0, background="#ffffff", 
@@ -149,7 +200,7 @@ class StatusWindow:
         self.checker = checker
         self.log_buffer = log_buffer
         self.on_close_callback = on_close_callback
-        self.is_running = True # Flag to stop update loop
+        self.is_running = True 
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog - Status Dashboard")
@@ -157,7 +208,7 @@ class StatusWindow:
         ws, hs = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(f"{w}x{h}+{int((ws-w)/2)}+{int((hs-h)/2)}")
         
-        # Set Static Icon
+        # Set Static Window Icon (Generated Shield)
         self._icon_ref = set_window_icon(self.root)
         
         style = ttk.Style()
@@ -183,7 +234,7 @@ class StatusWindow:
         pad = 10
         self.frm_global = ttk.LabelFrame(self.tab_overview, text=" Global Protection ", padding=pad)
         self.frm_global.pack(fill="x", padx=pad, pady=pad)
-        self.lbl_global = ttk.Label(self.frm_global, text="UNKNOWN", font=("Segoe UI", 16, "bold"))
+        self.lbl_global = ttk.Label(self.frm_global, text="SCANNING...", font=("Segoe UI", 16, "bold"))
         self.lbl_global.pack(anchor="center")
 
         container = ttk.Frame(self.tab_overview)
@@ -203,9 +254,9 @@ class StatusWindow:
         
         head = ttk.Frame(frm)
         head.pack(fill="x", pady=(0, 10))
-        lbl_icon = ttk.Label(head, text="⚪", font=("Segoe UI", 24))
+        lbl_icon = ttk.Label(head, text="⏳", font=("Segoe UI", 24))
         lbl_icon.pack(side="left", padx=(0, 10))
-        lbl_status = ttk.Label(head, text="Disabled", font=("Segoe UI", 12, "bold"))
+        lbl_status = ttk.Label(head, text="Pending...", font=("Segoe UI", 12, "bold"))
         lbl_status.pack(side="left", anchor="center")
         
         details_frame = ttk.Frame(frm)
@@ -231,12 +282,21 @@ class StatusWindow:
     def build_logs(self):
         frm_filter = ttk.Frame(self.tab_logs)
         frm_filter.pack(fill="x", padx=5, pady=5)
-        ttk.Label(frm_filter, text="Min Level:").pack(side="left")
-        self.var_filter = tk.StringVar(value="INFO")
+        
+        ttk.Label(frm_filter, text="View Level:").pack(side="left")
+        
+        # Pre-select based on global config
+        current_global_level = self.checker.cfg.get("log_level")
+        self.var_filter = tk.StringVar(value=current_global_level)
+        
         cb_filter = ttk.Combobox(frm_filter, textvariable=self.var_filter, values=["DEBUG", "INFO", "WARNING", "ERROR"], state="readonly", width=10)
         cb_filter.pack(side="left", padx=5)
         cb_filter.bind("<<ComboboxSelected>>", lambda e: self.refresh_logs())
+        
         ttk.Button(frm_filter, text="Refresh", command=self.refresh_logs).pack(side="right")
+        
+        # Hint label about global logging
+        ttk.Label(frm_filter, text="(Note: Set global Log Level in Settings to see DEBUG)", font=("Arial", 8), foreground="gray").pack(side="left", padx=10)
 
         self.txt_log = tk.Text(self.tab_logs, state="disabled", font=("Consolas", 9))
         self.txt_log.pack(fill="both", expand=True, padx=5, pady=5)
@@ -246,7 +306,7 @@ class StatusWindow:
         self.refresh_logs()
 
     def refresh_logs(self):
-        if not self.is_running: return # Safety check
+        if not self.is_running: return 
         self.txt_log.configure(state="normal")
         self.txt_log.delete("1.0", "end")
         
@@ -268,12 +328,20 @@ class StatusWindow:
             self.root.after_idle(self.refresh_logs)
 
     def update_ui(self):
-        if not self.is_running: return # Stop loop if closed
+        if not self.is_running: return
 
-        # 2. Update Data
         data = self.checker.get_dashboard_data()
         
-        # Global
+        # Check Initialization Status
+        if not data.get("initial_check_done", False):
+            self.lbl_global.configure(text="SCANNING...", foreground="orange")
+            # Loop for cards to show hourglass
+            for card in [self.card_route, self.card_conn, self.card_dns]:
+                card["icon"].configure(text="⏳", foreground="orange")
+                card["status"].configure(text="Pending...", foreground="gray")
+            self.root.after(1000, self.update_ui)
+            return
+
         g_secure = data["secure"]
         self.lbl_global.configure(text="SECURE" if g_secure else "VULNERABLE", foreground="green" if g_secure else "red")
         
@@ -340,11 +408,9 @@ class SettingsDialog:
         self.root = tk.Tk()
         self.root.title("VPN Watchdog Settings")
         
-        # Shared Variables
         self.var_home_isp = tk.StringVar(value=self.cfg.get("home_isp"))
         self.var_dyndns = tk.StringVar(value=self.cfg.get("home_dyndns"))
         
-        # Set Static Icon
         self._icon_ref = set_window_icon(self.root)
 
         w, h = 600, 800 
@@ -383,7 +449,7 @@ class SettingsDialog:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.mainloop()
 
-    # (Same build methods as before, just ensuring icon_ref is kept)
+    # --- TAB 1: GENERAL ---
     def build_general_tab(self):
         content = ttk.Frame(self.tab_general, padding=15)
         content.pack(fill="both", expand=True)
@@ -399,6 +465,7 @@ class SettingsDialog:
         cb_log = ttk.Combobox(grp_log, textvariable=self.var_log, values=["DEBUG", "INFO", "WARNING", "ERROR"], state="readonly")
         cb_log.pack(fill="x", pady=5)
 
+    # --- TAB 2: ROUTING GUARD ---
     def build_routing_tab(self):
         content = ttk.Frame(self.tab_routing, padding=15)
         content.pack(fill="both", expand=True)
@@ -451,12 +518,14 @@ class SettingsDialog:
         self.iface_list_area.update_idletasks()
         self.scroll_container.canvas.configure(scrollregion=self.scroll_container.canvas.bbox("all"))
 
+    # --- TAB 3: CONNECTIVITY GUARD ---
     def build_public_tab(self):
         content = ttk.Frame(self.tab_public, padding=15)
         content.pack(fill="both", expand=True)
         ttk.Label(content, text="Public Connectivity Check", font=("Segoe UI", 12, "bold")).pack(anchor="w")
         self.var_pub_enable = tk.BooleanVar(value=self.cfg.get("public_check_enabled"))
         ttk.Checkbutton(content, text="Enable Connectivity Check", variable=self.var_pub_enable, command=self.toggle_public_options).pack(anchor="w", pady=5)
+        
         grp_gen = ttk.LabelFrame(content, text=" Configuration ", padding=15)
         grp_gen.pack(fill="x", pady=5)
         ttk.Label(grp_gen, text="Interval (sec):").pack(side="left")
@@ -557,6 +626,7 @@ class SettingsDialog:
         self.cb_prov.configure(state="readonly" if state=="normal" else "disabled")
         self.cb_strat.configure(state="readonly" if state=="normal" else "disabled")
 
+    # --- TAB 4: DNS LEAK ---
     def build_dns_tab(self):
         content = ttk.Frame(self.tab_dns, padding=15)
         content.pack(fill="both", expand=True)
@@ -632,15 +702,19 @@ class TrayApp:
     def __init__(self, app_logic, config_manager):
         self.logic = app_logic
         self.cfg = config_manager
-        self.icon = TrayIcon("VPN Watchdog", generate_icon_image("gray"), "Initializing", menu=None)
+        # Tray Icon gets style='dot' (classic)
+        self.icon = TrayIcon("VPN Watchdog", generate_icon_image("gray", style="dot"), "Initializing", menu=None)
         
         self.log_buffer = deque(maxlen=500)
         self.status_window = None
         
+        # Attach handler to ROOT LOGGER to capture all messages (requests, etc)
         handler = ListLogHandler(self.log_buffer, callback=self.on_new_log)
         formatter = logging.Formatter('%(asctime)s', datefmt='%H:%M:%S')
         handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        
+        # ROOT LOGGER
+        logging.getLogger().addHandler(handler)
         
         self.update_menu() 
 
@@ -652,9 +726,7 @@ class TrayApp:
                 pass
 
     def on_window_closed(self):
-        # Callback when Settings/Dashboard closes to allow reopening
-        self.logic.settings_open = False # Only for SettingsDialog actually
-        # For StatusWindow:
+        self.logic.settings_open = False 
         self.status_window = None
 
     def open_dashboard(self):
@@ -691,7 +763,10 @@ class TrayApp:
         if status == "safe": color = "green"
         elif status == "unsafe": color = "red"
         elif status == "paused": color = "yellow"
-        self.icon.icon = generate_icon_image(color, country)
+        
+        # Tray Icon -> Style="dot"
+        self.icon.icon = generate_icon_image(color, country, style="dot")
+        
         title = f"VPN Watchdog: {status.upper()}"
         state = self.logic.checker.current_state 
         details = []

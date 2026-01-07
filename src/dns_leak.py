@@ -16,7 +16,7 @@ class DnsLeakChecker:
         self.last_result = {
             "servers": [], # List of detected DNS servers (IP, Country, ISP)
             "count": 0,
-            "is_secure": True,
+            "is_secure": None, # Undefined until proven otherwise
             "error": None
         }
         self.is_checking = False

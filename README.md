@@ -25,7 +25,7 @@ A modular, cross-platform system tray application that monitors your VPN connect
   2.  **Connectivity Guard:** Monitors Public IP, ISP, and Location.
   3.  **DNS Guard:** Checks for DNS Leaks (DNS servers belonging to home ISP).
 
-## How it works (The 3 Guards)
+## How it works
 
 The app combines three security layers. You can enable/disable each independently in Settings.
 
@@ -60,8 +60,9 @@ bash <(curl -sL https://raw.githubusercontent.com/jojo141185/vpn-watchdog/main/s
 
 ### 🪟 Windows & 🍎 macOS
 1. Go to the [Releases Page](https://github.com/jojo141185/vpn-watchdog/releases).
-2. Download the executable for your system (`vpn-watchdog-windows.exe` or `vpn-watchdog-macos`).
-3. Run it.
+2. Download the package for your system (`vpn-watchdog-windows` or `vpn-watchdog-macos`).
+3. Extract the archive on your system
+4. Open the extracted folder and run setup script to install or start the executable directly.
 
 ## Development / Building from Source
 
