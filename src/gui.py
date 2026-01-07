@@ -214,7 +214,8 @@ class StatusWindow:
         self.log_buffer = log_buffer
         self.on_close_callback = on_close_callback
         self.is_running = True 
-        self._timer_id = None
+        self._ui_timer_id = None
+        self._log_timer_id = None
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog - Status Dashboard")
@@ -228,19 +229,27 @@ class StatusWindow:
         style = ttk.Style()
         style.theme_use('clam')
         
+        # State for Checkbox (Default ON)
+        self.auto_refresh_var = tk.BooleanVar(value=True)
+        
         # Tabs
-        tabs = ttk.Notebook(self.root)
-        self.tab_overview = ttk.Frame(tabs)
-        self.tab_logs = ttk.Frame(tabs)
-        tabs.add(self.tab_overview, text="Status Overview")
-        tabs.add(self.tab_logs, text="Live Logs")
-        tabs.pack(fill="both", expand=True, padx=5, pady=5)
+        self.notebook = ttk.Notebook(self.root)
+        self.tab_overview = ttk.Frame(self.notebook)
+        self.tab_logs = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_overview, text="Status Overview")
+        self.notebook.add(self.tab_logs, text="Live Logs")
+        self.notebook.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Bind Tab Change to refresh logs immediately
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
         
         self.build_overview()
         self.build_logs()
         
-        # Start Update Loop
+        # Start Loops
         self.update_ui()
+        self.auto_update_loop() # Start the 10s log loop
+        
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.mainloop()
 
@@ -254,11 +263,11 @@ class StatusWindow:
         container = ttk.Frame(self.tab_overview)
         container.pack(fill="both", expand=True, padx=pad)
         
-        # Use grid for equal columns
+        # Grid layout for better spacing
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
         container.columnconfigure(2, weight=1)
-        
+
         self.card_route = self.create_status_card(container, "Routing Interface")
         self.card_route["frame"].grid(row=0, column=0, sticky="nsew", padx=5)
         
@@ -337,49 +346,77 @@ class StatusWindow:
         cb_filter.pack(side="left", padx=5)
         cb_filter.bind("<<ComboboxSelected>>", lambda e: self.refresh_logs())
         
-        ttk.Button(frm_filter, text="Refresh", command=self.refresh_logs).pack(side="right")
+        # Auto Update Checkbox
+        ttk.Checkbutton(frm_filter, text="Auto Update (10s)", variable=self.auto_refresh_var).pack(side="right", padx=5)
         
-        # Hint label about global logging
-        ttk.Label(frm_filter, text="(Auto-updates)", font=("Arial", 8), foreground="gray").pack(side="left", padx=10)
-
+        ttk.Button(frm_filter, text="Refresh Now", command=self.refresh_logs).pack(side="right")
+        
         self.txt_log = tk.Text(self.tab_logs, state="disabled", font=("Consolas", 9))
         self.txt_log.pack(fill="both", expand=True, padx=5, pady=5)
         scr = ttk.Scrollbar(self.txt_log, command=self.txt_log.yview)
         self.txt_log['yscrollcommand'] = scr.set
         scr.pack(side="right", fill="y")
+        
+        # Initial population
         self.refresh_logs()
 
-    def refresh_logs(self):
-        # Safety check if window is destroyed
+    def on_tab_change(self, event):
+        """Called when user switches tabs. If Live Logs selected, refresh immediately."""
+        if not self.is_running: return
+        try:
+            selected_tab_id = self.notebook.select()
+            # Check if it's the logs tab (index 1)
+            if selected_tab_id == self.tab_logs._w:
+                self.refresh_logs()
+        except Exception:
+            pass
+
+    def auto_update_loop(self):
+        """Updates logs every 10 seconds if enabled."""
         if not self.is_running: return
         try:
             if not self.root.winfo_exists(): return
         except Exception: return
 
-        self.txt_log.configure(state="normal")
-        self.txt_log.delete("1.0", "end")
+        if self.auto_refresh_var.get():
+            self.refresh_logs()
         
-        levels = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
-        min_lvl = levels.get(self.var_filter.get(), 20)
-        logs = list(self.log_buffer)
-        
-        for entry in logs:
-            lvl_val = levels.get(entry["level"], 20)
-            if lvl_val >= min_lvl:
-                line = f"[{entry['level']}] {entry['time']} - {entry['raw']}\n"
-                self.txt_log.insert("end", line)
-        
-        self.txt_log.see("end")
-        self.txt_log.configure(state="disabled")
+        self._log_timer_id = self.root.after(10000, self.auto_update_loop)
+
+    def refresh_logs(self):
+        """Reads log buffer and updates text widget."""
+        if not self.is_running: return
+        try:
+            # Robust check if widget exists
+            if not self.txt_log.winfo_exists(): return
+        except Exception: return
+
+        try:
+            self.txt_log.configure(state="normal")
+            self.txt_log.delete("1.0", "end")
+            
+            levels = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
+            min_lvl = levels.get(self.var_filter.get(), 20)
+            
+            # Copy buffer to list to avoid runtime modification issues
+            logs = list(self.log_buffer)
+            
+            for entry in logs:
+                lvl_val = levels.get(entry["level"], 20)
+                if lvl_val >= min_lvl:
+                    line = f"[{entry['level']}] {entry['time']} - {entry['raw']}\n"
+                    self.txt_log.insert("end", line)
+            
+            self.txt_log.see("end")
+            self.txt_log.configure(state="disabled")
+        except Exception as e:
+            # Fallback to avoid crash loops
+            print(f"Error refreshing logs: {e}")
 
     def notify_new_log(self):
-        # Thread-safe trigger for log refresh
-        if self.is_running:
-            try:
-                # Use after(0) instead of after_idle to avoid thread race conditions causing Tcl errors
-                self.root.after(0, self.refresh_logs)
-            except Exception:
-                pass
+        # We rely on the 10s polling loop + manual refresh + tab switch.
+        # This keeps UI performance high and meets the 'approx 10s' requirement.
+        pass
 
     def update_ui(self):
         if not self.is_running: return
@@ -393,9 +430,7 @@ class StatusWindow:
         # Check Initialization Status for UI
         if current_status == "scanning" or current_status == "initializing":
             self.lbl_global.configure(text="SCANNING...", foreground="orange")
-        
-        g_secure = data["global_secure"]
-        if current_status == "unsafe":
+        elif current_status == "unsafe":
              self.lbl_global.configure(text="VULNERABLE", foreground="red")
         elif current_status == "safe":
              self.lbl_global.configure(text="SECURE", foreground="green")
@@ -486,13 +521,18 @@ class StatusWindow:
 
         # Robust Timer logic
         if self.is_running:
-            self._timer_id = self.root.after(2000, self.update_ui) 
+            self._ui_timer_id = self.root.after(2000, self.update_ui) 
 
     def on_close(self):
         self.is_running = False
-        if self._timer_id:
+        # Cancel timers
+        if self._ui_timer_id:
             try:
-                self.root.after_cancel(self._timer_id)
+                self.root.after_cancel(self._ui_timer_id)
+            except Exception: pass
+        if self._log_timer_id:
+            try:
+                self.root.after_cancel(self._log_timer_id)
             except Exception: pass
             
         if self.root.winfo_exists():

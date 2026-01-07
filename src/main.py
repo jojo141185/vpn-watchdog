@@ -59,9 +59,18 @@ class Application:
     def open_settings(self):
         if self.settings_open: return
         self.settings_open = True
-        try: SettingsDialog(self.cfg)
-        except Exception as e: logger.error(f"Error in Settings: {e}")
-        finally: self.settings_open = False
+        try: 
+            SettingsDialog(self.cfg) # Blocks execution until window closes
+            
+            # This code runs after settings window is closed
+            logger.info("Settings closed. Forcing immediate re-check...")
+            self.checker.force_checks()
+            self.last_check_time = 0 # Force main loop update
+            
+        except Exception as e: 
+            logger.error(f"Error in Settings: {e}")
+        finally: 
+            self.settings_open = False
 
     def monitor_loop(self):
         logger.info("Loop started.")

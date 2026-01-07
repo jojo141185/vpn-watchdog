@@ -42,6 +42,16 @@ class VPNChecker:
             "dns": {"secure": True, "data": {}, "enabled": False}
         }
 
+    def force_checks(self):
+        """
+        Resets the internal timers to 0.
+        This forces the next call to check_status() to immediately trigger
+        new async checks for Public IP and DNS, regardless of the configured interval.
+        """
+        logger.debug("Forcing immediate checks...")
+        self.last_public_check = 0
+        self.last_dns_check = 0
+
     def _run_command(self, cmd_list, use_shell=False):
         try:
             creation_flags = 0x08000000 if self.os_system == "Windows" else 0
