@@ -258,6 +258,56 @@ class VPNChecker:
         if not init_pending:
             self.initial_check_done = True
         
+        # --- DETAILED DEBUG LOGGING ---
+        # Only log if logLevel is DEBUG to avoid spam, but provide deep insight when requested.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("--- CHECK REPORT ---")
+            
+            # Routing Report
+            r_stat = "DISABLED"
+            if rt_en: r_stat = "SECURE" if local_secure else "UNSAFE"
+            if local_secure is None and rt_en: r_stat = "PENDING"
+            logger.debug(f"Routing: {r_stat} (Details: {local_details})")
+            
+            # Public Report
+            p_stat = "DISABLED"
+            if pb_en: 
+                p_stat = "SECURE" if public_secure else "UNSAFE"
+                # Show why unsafe
+                if not public_secure:
+                    # Construct reason from data
+                    reason_v4 = "OK"
+                    reason_v6 = "OK"
+                    
+                    # Logic mirrors public_ip check roughly to display info
+                    strat = self.cfg.get("public_check_strategy")
+                    target = self.cfg.get("target_country")
+                    h_isp = self.cfg.get("home_isp")
+                    
+                    p_info = f"Strategy: {strat}"
+                    if target: p_info += f", HomeC: {target}"
+                    if h_isp: p_info += f", HomeISP: {h_isp}"
+                    
+                    p_stat += f" ({p_info})"
+            
+            if public_secure is None and pb_en: p_stat = "PENDING"
+            logger.debug(f"Public:  {p_stat} (Data: {p_state.get('details', 'N/A')})")
+            
+            # DNS Report
+            d_stat = "DISABLED"
+            if dns_en: d_stat = "SECURE" if dns_secure else "UNSAFE"
+            if dns_secure is None and dns_en: d_stat = "PENDING"
+            
+            srv_list = []
+            if d_state.get("servers"):
+                srv_list = [f"{s.get('asn', 'Unknown')}" for s in d_state.get("servers")]
+            
+            logger.debug(f"DNS:     {d_stat} (Servers: {len(srv_list)} {srv_list})")
+            
+            # Global Result
+            logger.debug(f"GLOBAL:  {effective_status.upper()} (Scanning: {init_pending})")
+            logger.debug("--------------------")
+
         self.current_state = {
             "status": effective_status,
             "global_secure": is_globally_secure, 

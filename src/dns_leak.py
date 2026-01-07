@@ -54,9 +54,12 @@ class DnsLeakChecker:
             
             # 2. Trigger Resolution (The Leak Trick)
             # We resolve 10 subdomains. The OS will query the configured DNS server.
+            # This works for both IPv4 and IPv6 if the OS stack is dual.
             for i in range(0, 10):
                 domain = f"{i}.{leak_id}.bash.ws"
                 try:
+                    # socket.gethostbyname uses the OS resolver. 
+                    # If OS uses IPv6 DNS, it will query A/AAAA records via that DNS.
                     socket.gethostbyname(domain)
                 except socket.error:
                     pass 
@@ -86,6 +89,9 @@ class DnsLeakChecker:
             if not detected_servers:
                 logger.warning("DNS Check: No servers detected (Timeout or Blocked?)")
             
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"DNS Check: Found {len(detected_servers)} servers.")
+            
             # Logic Update: If alert is on but no Home ISP configured, we can't check.
             if alert_on_home and not home_isp:
                 logger.warning("DNS Guard: 'Alert on Home ISP' enabled, but no 'Home ISP' configured in Connectivity settings!")
@@ -95,6 +101,10 @@ class DnsLeakChecker:
                 for srv in detected_servers:
                     # Check ASN/ISP string
                     isp_str = srv["asn"].lower()
+                    
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"  [DNS] Server {srv['ip']} ({isp_str}) vs Home '{home_isp}'")
+
                     if home_isp in isp_str:
                         is_safe = False
                         logger.warning(f"DNS LEAK: Detected Home ISP DNS: {srv['ip']} ({srv['asn']})")

@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     # --- Module 2: Connectivity Guard (Public IP) ---
     "public_check_enabled": False,
     "public_check_interval": 60,   
-    "public_check_provider": "ipwhois", # ipwhois, ipapi, custom
+    "public_check_provider": "smart", # smart (Recommended), ipwhois, ipapi, custom
     
     # Custom Provider Settings
     "public_custom_url": "",       # Primary / IPv4

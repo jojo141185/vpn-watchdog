@@ -40,7 +40,7 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         "green": (0, 200, 0, 255), 
         "red": (220, 0, 0, 255), 
         "yellow": (255, 200, 0, 255), 
-        "gray": (100, 100, 100, 255) 
+        "gray": (120, 120, 120, 255)
     }
     image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)
@@ -49,15 +49,23 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
     
     if style == "shield":
         # Draw Shield Shape
+        # Improved coordinates for a more accurate "Heater Shield" shape
         m = size / 64 
+        
+        # Polygon points: Top-Left, Top-Right, then curve down to bottom tip
         points = [
-            (10*m, 8*m),   # Top Left
-            (54*m, 8*m),   # Top Right
-            (54*m, 30*m),  # Right Side Start Curve
-            (32*m, 58*m),  # Bottom Tip
-            (10*m, 30*m)   # Left Side Start Curve
+            (8*m, 6*m),    # Top Left
+            (56*m, 6*m),   # Top Right
+            (56*m, 22*m),  # Right side straight down start
+            (52*m, 44*m),  # Right Curve Control point (approx)
+            (32*m, 60*m),  # Bottom Tip
+            (12*m, 44*m),  # Left Curve Control point (approx)
+            (8*m, 22*m)    # Left side straight down start
         ]
-        dc.polygon(points, fill=fill)
+        
+        # Draw with outline for better visibility on gray taskbars
+        dc.polygon(points, fill=fill, outline="black", width=int(2*m))
+        
     else:
         # Draw Dot/Circle (Classic Tray)
         padding = size // 64
@@ -106,7 +114,12 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
             
             # Draw Outline/Shadow for readability against color
             outline_color = "black"
-            dc.text((x+1, y+1), text, fill=outline_color, font=fnt)
+            # Text outline
+            for off_x in [-1, 0, 1]:
+                for off_y in [-1, 0, 1]:
+                    if off_x == 0 and off_y == 0: continue
+                    dc.text((x+off_x, y+off_y), text, fill=outline_color, font=fnt)
+            
             dc.text((x, y), text, fill="white", font=fnt)
             
         except AttributeError: 
@@ -201,6 +214,7 @@ class StatusWindow:
         self.log_buffer = log_buffer
         self.on_close_callback = on_close_callback
         self.is_running = True 
+        self._timer_id = None
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog - Status Dashboard")
@@ -372,24 +386,28 @@ class StatusWindow:
         update_vis(self.card_conn, p)
         if p["enabled"]:
             pd = p["data"]
-            # ipv4 / ipv6 specific details
+            # ipv4 / ipv6 specific details in structured format
             v4 = pd.get("ipv4", {})
             v6 = pd.get("ipv6", {})
             
             details = {}
+            # IPv4 Block
             if v4.get("ip"):
-                details["IPv4"] = f"{v4.get('ip')} ({v4.get('country')})"
-                details["v4 ISP"] = v4.get("isp")
+                details["IPv4 Address"] = v4.get("ip")
+                details["IPv4 Location"] = f"{v4.get('country')} ({v4.get('isp')})"
             elif v4.get("error"):
-                details["IPv4"] = f"Error: {v4.get('error')}"
-                
-            if v6.get("ip"):
-                details["IPv6"] = f"{v6.get('ip')} ({v6.get('country')})"
-                details["v6 ISP"] = v6.get("isp")
-            elif v6.get("error"):
-                details["IPv6"] = f"Error: {v6.get('error')}"
+                details["IPv4 Status"] = f"Error: {v4.get('error')}"
+            else:
+                details["IPv4 Status"] = "Not detected"
             
-            if not details: details = {"Info": "Waiting for data..."}
+            # IPv6 Block
+            if v6.get("ip"):
+                details["IPv6 Address"] = v6.get("ip")
+                details["IPv6 Location"] = f"{v6.get('country')} ({v6.get('isp')})"
+            elif v6.get("error"):
+                details["IPv6 Status"] = f"Error: {v6.get('error')}"
+            else:
+                details["IPv6 Status"] = "Not detected"
             
             self.set_card_details(self.card_conn, details)
 
@@ -402,15 +420,19 @@ class StatusWindow:
             details = {"Servers Found": count}
             if count > 0 and dd.get("servers"):
                 first = dd.get("servers")[0]
-                details["DNS IP"] = first.get("ip")
-                details["DNS ASN"] = first.get("asn")
+                details["Top Server"] = f"{first.get('ip')} ({first.get('asn')})"
             if dd.get("error"): details["Error"] = dd.get("error")
             self.set_card_details(self.card_dns, details)
 
-        self.root.after(2000, self.update_ui) 
+        self._timer_id = self.root.after(2000, self.update_ui) 
 
     def on_close(self):
         self.is_running = False
+        if self._timer_id:
+            try:
+                self.root.after_cancel(self._timer_id)
+            except Exception: pass
+            
         if self.root.winfo_exists():
             self.root.destroy()
         if self.on_close_callback:
