@@ -70,7 +70,7 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         # Draw Dot/Circle (Classic Tray)
         padding = size // 64
         dc.ellipse((padding, padding, width-padding, height-padding), fill=fill)
-        # Optional inner indicator for green
+        # Inner indicator for green
         if color_name == "green":
             s = size // 2.5
             inner_pad = (size - s) // 2
@@ -938,17 +938,42 @@ class TrayApp:
         elif status == "scanning" or status == "initializing":
              details.append("Initializing Checks...")
         else:
+             # 1. Routing
              if state["routing"]["enabled"]:
-                 details.append(f"Local: {'OK' if state['routing']['secure'] else 'LEAK'}")
+                 r_det = state["routing"]["details"]
+                 # Clean up string to be compact
+                 if len(r_det) > 30: r_det = r_det[:27] + "..."
+                 title += f"\nIF: {r_det}"
+
+             # 2. Public IP
              if state["public"]["enabled"]:
-                 # Just show main country in tooltip to keep it short
                  d = state["public"]["data"]
-                 c_str = d.get("ipv4", {}).get("country", "??")
-                 details.append(f"Pub: {c_str}")
+                 v4 = d.get("ipv4", {})
+                 v6 = d.get("ipv6", {})
+
+                 # Prefer IPv4 for compact display
+                 main_ip = v4.get("ip")
+                 main_c = v4.get("country")
+                 main_isp = v4.get("isp")
+
+                 if not main_ip:
+                     main_ip = v6.get("ip")
+                     main_c = v6.get("country")
+                     main_isp = v6.get("isp")
+
+                 if main_ip:
+                     # Compact ISP name
+                     if main_isp and len(main_isp) > 15:
+                         main_isp = main_isp[:12] + "..."
+                     title += f"\nIP: {main_ip}\nLOC: {main_c} / {main_isp}"
+                 else:
+                     title += "\nIP: Searching..."
+
+             # 3. DNS
              if state["dns"]["enabled"]:
-                 details.append(f"DNS: {'OK' if state['dns']['secure'] else 'LEAK'}")
-        if details: title += "\n" + "\n".join(details)
-        if len(title) > 120: title = title[:117] + "..."
+                 dns_lbl = "OK" if state["dns"]["secure"] else "LEAK" if state["dns"]["secure"] == False else "Pending"
+                 title += f"\nDNS: {dns_lbl}"
+
         self.icon.title = title
         if status == "unsafe": self.icon.notify("VPN ALERT", "Secure connection lost!")
         self.update_menu()
