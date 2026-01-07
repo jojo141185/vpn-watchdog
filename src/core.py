@@ -275,34 +275,29 @@ class VPNChecker:
                 p_stat = "SECURE" if public_secure else "UNSAFE"
                 # Show why unsafe
                 if not public_secure:
-                    # Construct reason from data
-                    reason_v4 = "OK"
-                    reason_v6 = "OK"
+                    # Retrieve the specific reasons calculated inside public_ip logic if available
+                    # otherwise reconstruct summary
+                    reasons = []
+                    if p_state["ipv4"].get("reason"): reasons.append(f"v4: {p_state['ipv4']['reason']}")
+                    if p_state["ipv6"].get("reason"): reasons.append(f"v6: {p_state['ipv6']['reason']}")
                     
-                    # Logic mirrors public_ip check roughly to display info
-                    strat = self.cfg.get("public_check_strategy")
-                    target = self.cfg.get("target_country")
-                    h_isp = self.cfg.get("home_isp")
-                    
-                    p_info = f"Strategy: {strat}"
-                    if target: p_info += f", HomeC: {target}"
-                    if h_isp: p_info += f", HomeISP: {h_isp}"
-                    
-                    p_stat += f" ({p_info})"
+                    if reasons:
+                        p_stat += f" [Reason: {', '.join(reasons)}]"
             
             if public_secure is None and pb_en: p_stat = "PENDING"
-            logger.debug(f"Public:  {p_stat} (Data: {p_state.get('details', 'N/A')})")
+            logger.debug(f"Public:  {p_stat}")
             
             # DNS Report
             d_stat = "DISABLED"
             if dns_en: d_stat = "SECURE" if dns_secure else "UNSAFE"
             if dns_secure is None and dns_en: d_stat = "PENDING"
             
-            srv_list = []
+            # List DNS ASNs
+            dns_asns = []
             if d_state.get("servers"):
-                srv_list = [f"{s.get('asn', 'Unknown')}" for s in d_state.get("servers")]
+                dns_asns = [s.get("asn", "Unknown") for s in d_state.get("servers")]
             
-            logger.debug(f"DNS:     {d_stat} (Servers: {len(srv_list)} {srv_list})")
+            logger.debug(f"DNS:     {d_stat} (Servers: {len(dns_asns)} {dns_asns})")
             
             # Global Result
             logger.debug(f"GLOBAL:  {effective_status.upper()} (Scanning: {init_pending})")

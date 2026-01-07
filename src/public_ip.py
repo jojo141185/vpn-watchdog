@@ -12,8 +12,8 @@ class PublicIPChecker:
         
         # Internal State - Now supports dual stack results
         self.last_result = {
-            "ipv4": {"ip": None, "country": "??", "isp": "Unknown", "error": None},
-            "ipv6": {"ip": None, "country": "??", "isp": "Unknown", "error": None},
+            "ipv4": {"ip": None, "country": "??", "isp": "Unknown", "error": None, "reason": None},
+            "ipv6": {"ip": None, "country": "??", "isp": "Unknown", "error": None, "reason": None},
             "is_secure": None, # Aggregate security state
             "details": ""      # Short summary for logs
         }
@@ -160,7 +160,9 @@ class PublicIPChecker:
                 except: pass
 
             def is_entry_safe(entry, proto_label):
-                if not entry["ip"]: return True # No connection = Secure (Fail Close)
+                if not entry["ip"]: 
+                    entry["reason"] = "No Connection (Safe)"
+                    return True # No connection = Secure (Fail Close)
                 
                 curr_c = entry.get("country", "??")
                 curr_isp = entry.get("isp", "Unknown")
@@ -208,6 +210,7 @@ class PublicIPChecker:
                     status = "UNSAFE" if not safe else "SAFE"
                     logger.debug(f"  [{proto_label}] {curr_ip} | {curr_c} | {curr_isp} -> {status} ({reason})")
 
+                entry["reason"] = reason
                 return safe
 
             safe_v4 = is_entry_safe(self.last_result["ipv4"], "v4")

@@ -114,7 +114,7 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
             
             # Draw Outline/Shadow for readability against color
             outline_color = "black"
-            # Text outline
+            # Thicker text outline
             for off_x in [-1, 0, 1]:
                 for off_y in [-1, 0, 1]:
                     if off_x == 0 and off_y == 0: continue
@@ -218,7 +218,7 @@ class StatusWindow:
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog - Status Dashboard")
-        w, h = 800, 600
+        w, h = 900, 650
         ws, hs = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(f"{w}x{h}+{int((ws-w)/2)}+{int((hs-h)/2)}")
         
@@ -254,14 +254,19 @@ class StatusWindow:
         container = ttk.Frame(self.tab_overview)
         container.pack(fill="both", expand=True, padx=pad)
         
+        # Use grid for equal columns
+        container.columnconfigure(0, weight=1)
+        container.columnconfigure(1, weight=1)
+        container.columnconfigure(2, weight=1)
+        
         self.card_route = self.create_status_card(container, "Routing Interface")
-        self.card_route["frame"].pack(side="left", fill="both", expand=True, padx=5)
+        self.card_route["frame"].grid(row=0, column=0, sticky="nsew", padx=5)
         
         self.card_conn = self.create_status_card(container, "Public IP & Geo")
-        self.card_conn["frame"].pack(side="left", fill="both", expand=True, padx=5)
+        self.card_conn["frame"].grid(row=0, column=1, sticky="nsew", padx=5)
         
         self.card_dns = self.create_status_card(container, "DNS Leaks")
-        self.card_dns["frame"].pack(side="left", fill="both", expand=True, padx=5)
+        self.card_dns["frame"].grid(row=0, column=2, sticky="nsew", padx=5)
 
     def create_status_card(self, parent, title):
         frm = ttk.LabelFrame(parent, text=f" {title} ", padding=10)
@@ -283,15 +288,40 @@ class StatusWindow:
         }
 
     def set_card_details(self, card, data_dict):
+        """
+        Populates the card detail area.
+        Supports nested dictionaries to create sections.
+        """
         for w in card["details_frame"].winfo_children():
             w.destroy()
         if not data_dict: return
 
         row_idx = 0
-        for key, val in data_dict.items():
-            ttk.Label(card["details_frame"], text=f"{key}:", font=("Arial", 9, "bold"), foreground="#555").grid(row=row_idx, column=0, sticky="nw", pady=2)
-            ttk.Label(card["details_frame"], text=str(val), font=("Arial", 9), wraplength=130).grid(row=row_idx, column=1, sticky="nw", padx=5, pady=2)
-            row_idx += 1
+        
+        def render_level(parent, items, indent=0):
+            nonlocal row_idx
+            for key, val in items.items():
+                if isinstance(val, dict):
+                    # Section Header
+                    # Add small spacer if not first row
+                    if row_idx > 0:
+                        ttk.Frame(parent, height=5).grid(row=row_idx, column=0, columnspan=2)
+                        row_idx += 1
+                        
+                    # Header Text
+                    header_font = ("Arial", 9, "bold", "underline")
+                    ttk.Label(parent, text=str(key), font=header_font, foreground="#333").grid(row=row_idx, column=0, columnspan=2, sticky="w", padx=indent)
+                    row_idx += 1
+                    
+                    # Recurse
+                    render_level(parent, val, indent + 15)
+                else:
+                    # Key-Value Pair
+                    ttk.Label(parent, text=f"{key}:", font=("Arial", 9, "bold"), foreground="#555").grid(row=row_idx, column=0, sticky="nw", padx=(indent, 5), pady=1)
+                    ttk.Label(parent, text=str(val), font=("Arial", 9), wraplength=130).grid(row=row_idx, column=1, sticky="nw", pady=1)
+                    row_idx += 1
+
+        render_level(card["details_frame"], data_dict)
 
     def build_logs(self):
         frm_filter = ttk.Frame(self.tab_logs)
@@ -310,7 +340,7 @@ class StatusWindow:
         ttk.Button(frm_filter, text="Refresh", command=self.refresh_logs).pack(side="right")
         
         # Hint label about global logging
-        ttk.Label(frm_filter, text="(Note: Set global Log Level in Settings to see DEBUG)", font=("Arial", 8), foreground="gray").pack(side="left", padx=10)
+        ttk.Label(frm_filter, text="(Auto-updates)", font=("Arial", 8), foreground="gray").pack(side="left", padx=10)
 
         self.txt_log = tk.Text(self.tab_logs, state="disabled", font=("Consolas", 9))
         self.txt_log.pack(fill="both", expand=True, padx=5, pady=5)
@@ -320,7 +350,12 @@ class StatusWindow:
         self.refresh_logs()
 
     def refresh_logs(self):
-        if not self.is_running: return 
+        # Safety check if window is destroyed
+        if not self.is_running: return
+        try:
+            if not self.root.winfo_exists(): return
+        except Exception: return
+
         self.txt_log.configure(state="normal")
         self.txt_log.delete("1.0", "end")
         
@@ -338,13 +373,19 @@ class StatusWindow:
         self.txt_log.configure(state="disabled")
 
     def notify_new_log(self):
+        # Thread-safe trigger for log refresh
         if self.is_running:
-            self.root.after_idle(self.refresh_logs)
+            try:
+                # Use after(0) instead of after_idle to avoid thread race conditions causing Tcl errors
+                self.root.after(0, self.refresh_logs)
+            except Exception:
+                pass
 
     def update_ui(self):
-        # Prevent errors if window is closed
         if not self.is_running: return
-        if not self.root.winfo_exists(): return
+        try:
+            if not self.root.winfo_exists(): return
+        except Exception: return
 
         data = self.checker.get_dashboard_data()
         current_status = data.get("status", "unsafe")
@@ -375,56 +416,77 @@ class StatusWindow:
                 card["icon"].configure(text="🔴", foreground="red")
                 card["status"].configure(text="UNSAFE", foreground="red")
         
-        # Routing
+        # --- 1. Routing (Formatted) ---
         r = data["routing"]
         update_vis(self.card_route, r)
         if r["enabled"]:
-            self.set_card_details(self.card_route, {"Details": r["details"]})
+            # Split details if comma separated
+            det_str = r.get("details", "")
+            r_data = {}
+            parts = det_str.split(',')
+            for p in parts:
+                p = p.strip()
+                if "IPv4" in p: r_data["IPv4 Interface"] = p.replace("(IPv4)", "").strip()
+                if "IPv6" in p: r_data["IPv6 Interface"] = p.replace("(IPv6)", "").strip()
+            
+            if not r_data: r_data = {"Info": det_str}
+            self.set_card_details(self.card_route, r_data)
         
-        # Public
+        # --- 2. Public IP (Formatted with Sections) ---
         p = data["public"]
         update_vis(self.card_conn, p)
         if p["enabled"]:
             pd = p["data"]
-            # ipv4 / ipv6 specific details in structured format
             v4 = pd.get("ipv4", {})
             v6 = pd.get("ipv6", {})
             
-            details = {}
-            # IPv4 Block
+            p_data = {}
+            
+            # Section: IPv4
             if v4.get("ip"):
-                details["IPv4 Address"] = v4.get("ip")
-                details["IPv4 Location"] = f"{v4.get('country')} ({v4.get('isp')})"
+                p_data["IPv4 Connection"] = {
+                    "IP": v4.get("ip"),
+                    "Loc": v4.get("country"),
+                    "ISP": v4.get("isp")
+                }
             elif v4.get("error"):
-                details["IPv4 Status"] = f"Error: {v4.get('error')}"
+                p_data["IPv4 Connection"] = {"Status": f"Error: {v4.get('error')}"}
             else:
-                details["IPv4 Status"] = "Not detected"
-            
-            # IPv6 Block
-            if v6.get("ip"):
-                details["IPv6 Address"] = v6.get("ip")
-                details["IPv6 Location"] = f"{v6.get('country')} ({v6.get('isp')})"
-            elif v6.get("error"):
-                details["IPv6 Status"] = f"Error: {v6.get('error')}"
-            else:
-                details["IPv6 Status"] = "Not detected"
-            
-            self.set_card_details(self.card_conn, details)
+                p_data["IPv4 Connection"] = {"Status": "Not detected"}
 
-        # DNS
+            # Section: IPv6
+            if v6.get("ip"):
+                p_data["IPv6 Connection"] = {
+                    "IP": v6.get("ip"),
+                    "Loc": v6.get("country"),
+                    "ISP": v6.get("isp")
+                }
+            elif v6.get("error"):
+                p_data["IPv6 Connection"] = {"Status": f"Error: {v6.get('error')}"}
+            else:
+                p_data["IPv6 Connection"] = {"Status": "Not detected"}
+            
+            self.set_card_details(self.card_conn, p_data)
+
+        # --- 3. DNS (Formatted) ---
         d = data["dns"]
         update_vis(self.card_dns, d)
         if d["enabled"]:
             dd = d["data"]
-            count = dd.get("count", 0)
-            details = {"Servers Found": count}
-            if count > 0 and dd.get("servers"):
-                first = dd.get("servers")[0]
-                details["Top Server"] = f"{first.get('ip')} ({first.get('asn')})"
-            if dd.get("error"): details["Error"] = dd.get("error")
-            self.set_card_details(self.card_dns, details)
+            d_data = {
+                "Total Servers": dd.get("count", 0)
+            }
+            # List top servers
+            if dd.get("servers"):
+                for i, srv in enumerate(dd.get("servers")[:2]): # Limit to 2 for space
+                    d_data[f"Server {i+1}"] = f"{srv.get('ip')}\n({srv.get('asn')})"
+            
+            if dd.get("error"): d_data["Error"] = dd.get("error")
+            self.set_card_details(self.card_dns, d_data)
 
-        self._timer_id = self.root.after(2000, self.update_ui) 
+        # Robust Timer logic
+        if self.is_running:
+            self._timer_id = self.root.after(2000, self.update_ui) 
 
     def on_close(self):
         self.is_running = False
@@ -444,6 +506,7 @@ class SettingsDialog:
         self.cfg = config_manager
         self.checker = VPNChecker(self.cfg) 
         self.on_close_callback = on_close_callback
+        self.is_running = True # Track window state for threads
         
         self.root = tk.Tk()
         self.root.title("VPN Watchdog Settings")
@@ -651,8 +714,9 @@ class SettingsDialog:
                 provider = providers.get_provider("ipwhois")
                 data = provider.fetch_details(target_ip=target_ip)
                 if data["success"] and data.get("isp"):
-                    # CRITICAL FIX: Update GUI variable from MAIN thread only
-                    self.root.after(0, lambda: self.var_home_isp.set(data.get("isp")))
+                    # CRITICAL FIX: Update GUI variable from MAIN thread only and check if alive
+                    if self.is_running:
+                        self.root.after(0, lambda: self.var_home_isp.set(data.get("isp")))
             except Exception: pass
         threading.Thread(target=run_detect, daemon=True).start()
 
@@ -714,6 +778,7 @@ class SettingsDialog:
         ttk.Label(content, text=details, font=("Courier", 8), foreground="gray", justify="center").pack(side="bottom", pady=20)
     
     def on_close(self):
+        self.is_running = False
         self.root.destroy()
         if self.on_close_callback:
             self.on_close_callback()
@@ -746,6 +811,8 @@ class SettingsDialog:
         self.cfg.set("dns_check_interval", int(self.var_dns_int.get()))
         self.cfg.set("dns_alert_on_home_isp", self.var_dns_alert.get())
         logger.info("Settings saved.")
+        
+        self.is_running = False
         self.root.destroy()
         if self.on_close_callback:
             self.on_close_callback()
