@@ -70,11 +70,6 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         # Draw Dot/Circle (Classic Tray)
         padding = size // 64
         dc.ellipse((padding, padding, width-padding, height-padding), fill=fill)
-        # Inner indicator for green
-        if color_name == "green":
-            s = size // 2.5
-            inner_pad = (size - s) // 2
-            dc.rectangle((inner_pad, inner_pad, size-inner_pad, size-inner_pad), fill="white")
 
     # Draw Text Overlay (Country Code)
     # Only draw text if configured and size is sufficient

@@ -38,6 +38,12 @@ class Application:
         
         # Loop timers
         self.last_check_time = 0
+        
+        # FLICKER PREVENTION: Track last visual state
+        self.last_visual_state = {
+            "status": None,
+            "country": None
+        }
 
     def pause(self, minutes):
         self.paused = True
@@ -50,6 +56,8 @@ class Application:
         self.paused = False
         self.pause_until = None
         logger.info("Monitoring resumed.")
+        # Force redraw next loop
+        self.last_visual_state["status"] = None
 
     def stop(self):
         self.running = False
@@ -123,17 +131,28 @@ class Application:
                 country = state_obj.get("country", "??")
                 details = state_obj.get("summary_details", "")
 
-                if new_status != self.status:
+                # 5. UI Update Logic (Anti-Flicker)
+                has_changed = (new_status != self.status)
+                visual_changed = (new_status != self.last_visual_state["status"] or country != self.last_visual_state["country"])
+                
+                if has_changed:
                     logger.info(f"Status change: {self.status} -> {new_status} ({details})")
                     self.status = new_status
-                    try: 
-                        # notify on change only
+                    
+                    # Notify only if status actually changed (e.g. Safe -> Unsafe)
+                    try:
                         self.gui.update_icon(self.status, country=country, notify=True)
-                    except Exception as e: logger.error(f"Failed to update Icon: {e}")
-                else:
-                    # Update icon anyway if country changed or just to refresh tooltip
+                        # Update tracker
+                        self.last_visual_state["status"] = self.status
+                        self.last_visual_state["country"] = country
+                    except Exception as e: logger.error(f"Failed to update Icon (Notify): {e}")
+
+                elif visual_changed:
+                    # No status change (e.g. Safe -> Safe) but Country changed or initial render
                     try: 
                         self.gui.update_icon(self.status, country=country, notify=False)
+                        self.last_visual_state["status"] = self.status
+                        self.last_visual_state["country"] = country
                     except: pass
                 
             except Exception as e:
