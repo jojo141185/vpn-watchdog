@@ -6,7 +6,10 @@
 # Install, Update, and Uninstall script.
 # Supported Platforms: Linux, macOS (Darwin), Windows (Git Bash/MinGW)
 #
-# Usage:
+# Usage (Interactive):
+#   ./setup.sh
+#
+# Usage (CLI / Automation):
 #   ./setup.sh install
 #   ./setup.sh install --channel main
 #   ./setup.sh uninstall
@@ -57,35 +60,58 @@ detect_system() {
     if [ "$OS" == "linux" ]; then
         INSTALL_DIR="/usr/local/bin"
         DESKTOP_DIR="$HOME/.local/share/applications"
+        CONFIG_DIR="$HOME/.config/vpn-watchdog"
+        AUTOSTART_DIR="$HOME/.config/autostart"
         BINARY_EXT=""
         NEEDS_SUDO=true
     elif [ "$OS" == "darwin" ]; then
         INSTALL_DIR="/Applications"
         # macOS doesn't use XDG desktop files, but we set a dummy path
         DESKTOP_DIR="$HOME/Desktop" 
+        CONFIG_DIR="$HOME/.config/vpn-watchdog"
+        AUTOSTART_DIR="$HOME/Library/LaunchAgents"
         BINARY_EXT=""
-        # Sudo needed if writing to /Applications sometimes, but usually user-writable? 
-        # Standard /Applications requires root or admin.
         NEEDS_SUDO=true 
     elif [ "$OS" == "windows" ]; then
         # In Git Bash, $HOME usually maps to C:\Users\Username
-        # We use a local appdata folder logic
         INSTALL_DIR="$HOME/AppData/Local/VPNWatchdog"
-        DESKTOP_DIR="$HOME/Desktop" # Simplified
+        DESKTOP_DIR="$HOME/Desktop" 
+        CONFIG_DIR="$HOME/.config/vpn-watchdog"
+        AUTOSTART_DIR="$HOME/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
         BINARY_EXT=".exe"
-        NEEDS_SUDO=false # Windows (Git Bash) usually doesn't have sudo
+        NEEDS_SUDO=false 
     fi
 
     FULL_BINARY_NAME="${BINARY_NAME}${BINARY_EXT}"
+    TARGET_PATH="$INSTALL_DIR/$FULL_BINARY_NAME"
     PACKAGE_FILENAME="vpn-watchdog-${OS}-${ARCH}.zip"
 }
 
 # --- PARSE ARGUMENTS ---
 args=("$@")
+CMD_ARG=""
+SHOW_HELP=false
+
 for ((i=0; i<${#args[@]}; i++)); do
-    if [[ "${args[i]}" == "--channel" ]]; then
-        CHANNEL="${args[i+1]}"
-    fi
+    case "${args[i]}" in
+        --channel)
+            CHANNEL="${args[i+1]}"
+            ((i++))
+            ;;
+        install)
+            CMD_ARG="install"
+            ;;
+        uninstall)
+            CMD_ARG="uninstall"
+            ;;
+        --help|-h)
+            SHOW_HELP=true
+            ;;
+        -*)
+            echo -e "${RED}Unknown option: ${args[i]}${NC}"
+            SHOW_HELP=true
+            ;;
+    esac
 done
 
 # --- CALCULATE DOWNLOAD URL ---
@@ -104,20 +130,15 @@ print_header() {
     echo -e "${BLUE}======================================================${NC}"
     echo -e "${BLUE}   VPN WATCHDOG - SETUP MANAGER${NC}"
     echo -e "${BLUE}======================================================${NC}"
-    detect_system # Run detection here
+    detect_system 
     get_download_url
     echo -e "Platform: ${GREEN}$OS ($ARCH)${NC}"
-    echo -e "Target:   ${YELLOW}$VERSION_MSG${NC}"
-    echo -e "Install:  $INSTALL_DIR/$FULL_BINARY_NAME"
     echo "------------------------------------------------------"
 }
 
 ensure_permissions() {
     if [ "$NEEDS_SUDO" = true ] && [ "$EUID" -ne 0 ]; then 
         echo -e "${YELLOW}Note: Admin/Sudo privileges required for installation.${NC}"
-        # Only invoke sudo if not root. 
-        # We don't use 'sudo -v' blindly because it might hang in non-interactive shells.
-        # Instead, we rely on sudo calls in install_files.
     fi
 }
 
@@ -128,18 +149,32 @@ install_dependencies() {
     if [ "$OS" == "linux" ]; then
         if command -v apt-get &> /dev/null; then
             echo "Detected: APT"
+            
+            # Fix potentially broken packages first
+            echo "Attempting to fix broken packages..."
+            sudo apt-get install -f -y -qq
+            
             sudo apt-get update -qq
-            # INSTALL BOTH: Legacy and Ayatana (Modern)
-            # ADDED: libcanberra modules (fixes GTK load error) and python3-pil.imagetk (fixes PIL finder error)
+            
+            # 1. Install Base Packages (Safe, non-conflicting)
+            echo "Installing core dependencies..."
             sudo apt-get install -y -qq \
-                gir1.2-appindicator3-0.1 \
-                libappindicator3-1 \
-                gir1.2-ayatanaappindicator3-0.1 \
-                libayatana-appindicator3-1 \
-                libcanberra-gtk-module \
-                libcanberra-gtk3-module \
+                python3-tk \
                 python3-pil.imagetk \
-                python3-tk unzip
+                unzip \
+                libcanberra-gtk-module \
+                libcanberra-gtk3-module
+
+            # 2. Try Install Ayatana (Modern Standard for Ubuntu 22.04+)
+            echo "Checking for Ayatana AppIndicator (Modern)..."
+            if sudo apt-get install -y -qq gir1.2-ayatanaappindicator3-0.1 libayatana-appindicator3-1; then
+                echo "Ayatana installed successfully."
+            else
+                echo -e "${YELLOW}Ayatana not found or conflict. Attempting Legacy AppIndicator...${NC}"
+                # 3. Fallback to Legacy (Ubuntu 20.04 and older)
+                sudo apt-get install -y -qq gir1.2-appindicator3-0.1 libappindicator3-1
+            fi
+
         elif command -v dnf &> /dev/null; then
             echo "Detected: DNF"
             # Fedora usually maps libappindicator to ayatana automatically, but we ensure gtk3 support
@@ -156,15 +191,14 @@ install_dependencies() {
             echo -e "${RED}Error: 'unzip' is missing.${NC}"
             exit 1
         fi
-        echo "macOS dependencies look good (assuming standard libs)."
+        echo "macOS dependencies look good."
     elif [ "$OS" == "windows" ]; then
         if ! command -v powershell &> /dev/null; then
             echo -e "${RED}Error: PowerShell is required for Windows installation.${NC}"
             exit 1
         fi
         if ! command -v unzip &> /dev/null; then
-             echo -e "${YELLOW}Warning: 'unzip' not found. Ensure you can extract the files.${NC}"
-             # Windows often has tar/unzip in Git Bash, so we proceed.
+             echo -e "${YELLOW}Warning: 'unzip' not found.${NC}"
         fi
     fi
 }
@@ -181,7 +215,7 @@ fetch_and_unpack() {
     
     ZIP_PATH="$TMP_DIR/$PACKAGE_FILENAME"
     
-    # Check for local file first (same folder as script)
+    # Check for local file first
     if [ -f "./$FULL_BINARY_NAME" ] && [ "$CHANNEL" == "stable" ]; then
         echo -e "${GREEN}Local binary found. Skipping download.${NC}"
         cp "./$FULL_BINARY_NAME" "$TMP_DIR/$FULL_BINARY_NAME"
@@ -195,8 +229,6 @@ fetch_and_unpack() {
             unzip -o -q "$ZIP_PATH" -d "$TMP_DIR"
         else
             echo -e "${RED}ERROR: Download failed.${NC}"
-            echo "1. Check internet connection."
-            echo "2. Check if a build for '$OS-$ARCH' exists."
             exit 1
         fi
     fi
@@ -214,10 +246,10 @@ fetch_and_unpack() {
 # 3. INSTALLATION ROUTINES
 install_linux() {
     ensure_permissions
-    TARGET_PATH="$INSTALL_DIR/$FULL_BINARY_NAME"
 
     # Stop existing
     if pgrep -f "$FULL_BINARY_NAME" > /dev/null; then
+        echo "Stopping running instance..."
         pkill -f "$FULL_BINARY_NAME"
         sleep 2
         pkill -9 -f "$FULL_BINARY_NAME" 2>/dev/null
@@ -242,9 +274,6 @@ EOF
 }
 
 install_macos() {
-    # macOS installation logic (similar to setup.command)
-    TARGET_PATH="$INSTALL_DIR/$FULL_BINARY_NAME"
-    
     echo "Installing to $INSTALL_DIR..."
     
     # Kill existing
@@ -259,15 +288,11 @@ install_macos() {
     # Remove Quarantine (Gatekeeper)
     echo "Whitelisting binary (Gatekeeper)..."
     xattr -d com.apple.quarantine "$TARGET_PATH" 2>/dev/null || true
-    
-    echo -e "${YELLOW}Note: You can run it via Terminal: $TARGET_PATH${NC}"
 }
 
 install_windows() {
+
     # Windows installation logic (via Git Bash)
-    TARGET_PATH="$INSTALL_DIR/$FULL_BINARY_NAME"
-    
-    # Kill process (using windows command taskkill)
     taskkill //IM "$FULL_BINARY_NAME" //F 2>/dev/null
     
     echo "Creating directory: $INSTALL_DIR"
@@ -276,8 +301,7 @@ install_windows() {
     echo "Copying binary..."
     cp "$TMP_DIR/$FULL_BINARY_NAME" "$TARGET_PATH"
     
-    # Create Shortcut using PowerShell
-    # We need to translate unix paths to windows paths for PowerShell
+    # Create Shortcut
     WIN_TARGET=$(cygpath -w "$TARGET_PATH")
     WIN_LINK_PATH=$(cygpath -w "$USERPROFILE/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/VPN Watchdog.lnk")
     
@@ -299,43 +323,141 @@ install_files() {
     # Cleanup
     rm -rf "$TMP_DIR"
     echo -e "${GREEN}Installation complete!${NC}"
+    echo "Target: $TARGET_PATH"
 }
 
 # 4. UNINSTALL
 uninstall_app() {
-    print_header
-    echo -e "${RED}WARNING: Uninstalling${NC}"
+    echo -e "\n${BLUE}Uninstalling VPN Watchdog...${NC}"
     
-    if [ "$OS" == "linux" ]; then
-        pkill -f "$FULL_BINARY_NAME"
-        sudo rm -f "$INSTALL_DIR/$FULL_BINARY_NAME"
-        rm -f "$DESKTOP_DIR/$APP_NAME.desktop"
-        
-    elif [ "$OS" == "darwin" ]; then
-        pkill -f "$FULL_BINARY_NAME"
-        rm -f "$INSTALL_DIR/$FULL_BINARY_NAME" || sudo rm -f "$INSTALL_DIR/$FULL_BINARY_NAME"
-        
-    elif [ "$OS" == "windows" ]; then
+    # 1. Stop Process
+    echo "Stopping process..."
+    if [ "$OS" == "windows" ]; then
         taskkill //IM "$FULL_BINARY_NAME" //F 2>/dev/null
-        rm -f "$INSTALL_DIR/$FULL_BINARY_NAME"
-        rm -f "$USERPROFILE/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/VPN Watchdog.lnk"
+    else
+        pkill -f "$FULL_BINARY_NAME"
     fi
     
-    echo -e "${GREEN}Removed.${NC}"
+    # 2. Remove Binary
+    echo "Removing Binary: $TARGET_PATH"
+    if [ "$OS" == "linux" ] || [ "$OS" == "darwin" ]; then
+        sudo rm -f "$TARGET_PATH"
+    else
+        rm -f "$TARGET_PATH"
+    fi
+    
+    # 3. Remove Shortcuts / Desktop Files
+    if [ "$OS" == "linux" ]; then
+        echo "Removing Desktop Entry: $DESKTOP_DIR/$APP_NAME.desktop"
+        rm -f "$DESKTOP_DIR/$APP_NAME.desktop"
+        echo "Removing Autostart: $AUTOSTART_DIR/$APP_NAME.desktop"
+        rm -f "$AUTOSTART_DIR/$APP_NAME.desktop"
+        
+    elif [ "$OS" == "windows" ]; then
+        LINK="$USERPROFILE/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/VPN Watchdog.lnk"
+        STARTUP_LINK="$AUTOSTART_DIR/vpn-watchdog.lnk"
+        echo "Removing Shortcuts..."
+        rm -f "$LINK"
+        rm -f "$STARTUP_LINK"
+        rm -rf "$INSTALL_DIR"
+    fi
+
+    # 4. Config (Optional - Ask user?)
+    # For now, we print location but usually keep config to be nice
+    echo -e "${YELLOW}Note: Configuration files were kept at:${NC}"
+    echo "  $CONFIG_DIR"
+    echo "To remove them, run: rm -rf \"$CONFIG_DIR\""
+    
+    echo -e "${GREEN}Uninstalled.${NC}"
 }
 
-# --- CLI ROUTER ---
-if [[ " $@ " =~ " install " ]] || [[ "$1" == "install" ]]; then
-    print_header
+# --- MAIN MENU / ROUTER ---
+
+run_install() {
     install_dependencies
     fetch_and_unpack
     install_files
-elif [[ " $@ " =~ " uninstall " ]] || [[ "$1" == "uninstall" ]]; then
-    detect_system # Need to know OS to uninstall correctly
-    uninstall_app
+}
+
+# --- HELP / USAGE ---
+show_usage() {
+    echo -e "${BLUE}VPN WATCHDOG - USAGE GUIDE${NC}"
+    echo "------------------------------------------------------"
+    echo "Interactive Mode:"
+    echo "  ./setup.sh                (Starts the menu if no args given)"
+    echo ""
+    echo "CLI / Automation Mode:"
+    echo "  ./setup.sh install        (Standard Installation)"
+    echo "  ./setup.sh install --channel main  (Install from specific branch)"
+    echo "  ./setup.sh uninstall      (Remove application and shortcuts)"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help                Show this help message"
+    echo "  --channel NAME            Specify branch (stable, main, dev)"
+    echo "------------------------------------------------------"
+    exit 0
+}
+
+detect_system # Set OS and ARCH and paths
+
+if [ "$SHOW_HELP" = true ]; then
+    show_usage
+fi
+
+if [ -n "$CMD_ARG" ]; then
+    # CLI Mode
+    print_header
+    if [ "$CMD_ARG" == "install" ]; then
+        run_install
+    elif [ "$CMD_ARG" == "uninstall" ]; then
+        uninstall_app
+    fi
+elif [ "$#" -gt 0 ]; then
+    # No command or no valid command arg given
+    echo -e "${RED}Error: Unknown command '$1'${NC}"
+    show_usage
 else
-    echo "Usage:"
-    echo "  ./setup.sh install"
-    echo "  ./setup.sh install --channel main"
-    echo "  ./setup.sh uninstall"
+    # Interactive Mode (Menu)
+    print_header
+    
+    if [ -f "$TARGET_PATH" ]; then
+        echo -e "${YELLOW}EXISTING INSTALLATION DETECTED!${NC}"
+        echo "------------------------------------------------------"
+        echo "Locations:"
+        echo "  Binary:    $TARGET_PATH"
+        echo "  Config:    $CONFIG_DIR"
+        echo "  Autostart: $AUTOSTART_DIR (If enabled)"
+        echo "------------------------------------------------------"
+        echo ""
+        echo "What do you want to do?"
+        echo "  [1] Update / Re-Install (Default)"
+        echo "  [2] Uninstall completely"
+        echo "  [3] Cancel"
+        echo ""
+        read -p "Select option [1-3]: " CHOICE
+        
+        case "$CHOICE" in
+            1|"")
+                echo "Starting Installation / Update..."
+                run_install
+                ;;
+            2)
+                uninstall_app
+                ;;
+            3)
+                echo "Aborted."
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Invalid option: $CHOICE. Aborting.${NC}"
+                exit 1
+                ;;
+        esac
+    else
+        echo "No existing installation found."
+        echo "Starting fresh installation..."
+        echo ""
+        read -p "Press ENTER to continue or Ctrl+C to cancel..."
+        run_install
+    fi
 fi
