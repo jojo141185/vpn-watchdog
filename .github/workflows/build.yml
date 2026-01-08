@@ -167,9 +167,15 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.os_name }}" == "linux" ]]; then
-            # Run PyInstaller inside a virtual framebuffer (xvfb) AND a DBus session
-            # This is required because Gtk/AppIndicator need a message bus to initialize during build introspection
-            dbus-run-session xvfb-run --auto-servernum pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
+            # Run PyInstaller inside a virtual framebuffer (xvfb) AND a DBus session.
+            # We enforce collection of AyatanaAppIndicator3 to ensure .typelib files 
+            # are included for GNOME/Ubuntu support.
+            dbus-run-session xvfb-run --auto-servernum pyinstaller \
+              --noconfirm --onefile --windowed --clean \
+              --name="vpn-watchdog" \
+              --collect-all="gi.repository.AyatanaAppIndicator3" \
+              --collect-all="gi.repository.AppIndicator3" \
+              src/main.py
           else
             pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
           fi

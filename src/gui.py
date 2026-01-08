@@ -80,14 +80,26 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         base_scale = 0.35 if style == "shield" else 0.45
         scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
         
-        try: 
-            font_size = int(size * scale_factor)
-            # Use Bold font for better readability on small icons
+        font_size = int(size * scale_factor)
+
+        # FIX: Try Linux standard fonts first, then fall back to Windows or generic
+        font_candidates = [
+            "DejaVuSans-Bold.ttf",    # Standard on most Linux distros (Ubuntu, Fedora)
+            "LiberationSans-Bold.ttf", # Common open-source alternative to Arial
+            "arialbd.ttf",            # Windows Bold
+            "arial.ttf",              # Windows Standard
+        ]
+
+        fnt = None
+        for font_name in font_candidates:
             try:
-                fnt = ImageFont.truetype("arialbd.ttf", font_size)
+                fnt = ImageFont.truetype(font_name, font_size)
+                break # Font found, exit loop
             except IOError:
-                fnt = ImageFont.truetype("arial.ttf", font_size)
-        except IOError: 
+                continue # Try next font
+
+        # Fallback if absolutely no TrueType font is found
+        if fnt is None:
             fnt = ImageFont.load_default()
         
         try:
@@ -118,7 +130,7 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
             dc.text((x, y), text, fill="white", font=fnt)
             
         except AttributeError: 
-            # Fallback for old PIL
+            # Fallback for old PIL versions
             dc.text((size//3, size//3), text, fill="white")
             
     return image

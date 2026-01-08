@@ -9,17 +9,55 @@ import sys
 # CRITICAL FIX FOR LINUX / GNOME / PYINSTALLER
 # =============================================================================
 if getattr(sys, 'frozen', False):
-    if 'GSETTINGS_SCHEMA_DIR' in os.environ: del os.environ['GSETTINGS_SCHEMA_DIR']
+    # 1. Clear GSettings path to avoid conflicts with host system
+    if 'GSETTINGS_SCHEMA_DIR' in os.environ: 
+        del os.environ['GSETTINGS_SCHEMA_DIR']
+    
+    # 2. Fix XDG Data Dirs (remove PyInstaller temp path from it to avoid pollution)
     if 'XDG_DATA_DIRS' in os.environ:
         meipass = sys._MEIPASS
         paths = os.environ['XDG_DATA_DIRS'].split(os.pathsep)
         clean_paths = [p for p in paths if not p.startswith(meipass)]
         os.environ['XDG_DATA_DIRS'] = os.pathsep.join(clean_paths)
 
-from config import ConfigManager
+    # 3. FIX FOR GI REPOSITORY / TYPELIBS (AyatanaAppIndicator)
+    # PyInstaller creates a 'girepository-1.0' folder inside _MEIPASS when collecting components.
+    # We must explicitly tell PyGObject where to find these .typelib files.
+    base_path = sys._MEIPASS
+    gi_typelib_path = os.path.join(base_path, 'girepository-1.0')
+    
+    if os.path.exists(gi_typelib_path):
+        current_path = os.environ.get('GI_TYPELIB_PATH', '')
+        if current_path:
+            os.environ['GI_TYPELIB_PATH'] = f"{gi_typelib_path}{os.pathsep}{current_path}"
+        else:
+            os.environ['GI_TYPELIB_PATH'] = gi_typelib_path
+
+# --- IMPORT CONFIGURATION & GI VERSION FIX ---
+# It is critical to require versions BEFORE importing Gtk/AppIndicator modules.
+# This suppresses warnings and helps PyInstaller hooks find the right libs.
 import utils 
+
+if sys.platform == "linux":
+    try:
+        import gi
+        gi.require_version('Gtk', '3.0')
+        # Try to explicitly version Ayatana first (Modern)
+        try:
+            gi.require_version('AyatanaAppIndicator3', '0.1')
+        except ValueError:
+            # Fallback to Legacy if necessary
+            try:
+                gi.require_version('AppIndicator3', '0.1')
+            except ValueError:
+                pass
+    except ImportError:
+        pass
+
+# Ensure correct backend setup
 utils.setup_linux_backend()
 
+from config import ConfigManager
 from core import VPNChecker
 from gui import TrayApp, SettingsDialog
 
