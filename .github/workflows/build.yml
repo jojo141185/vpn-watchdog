@@ -161,23 +161,52 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # --- HARDENED BUILD BINARY STEP ---
       - name: Build Binary
         if: steps.check_filter.outputs.skip != 'true'
         # IMPORTANT: Use 'shell: bash' to make the syntax work on Windows too (Git Bash)
         shell: bash
         run: |
+          # Base Arguments
+          PY_ARGS=(--noconfirm --onefile --windowed --clean --name="vpn-watchdog")
+          
           if [[ "${{ matrix.os_name }}" == "linux" ]]; then
-            # Run PyInstaller inside a virtual framebuffer (xvfb) AND a DBus session.
-            # We enforce collection of AyatanaAppIndicator3 to ensure .typelib files 
-            # are included for GNOME/Ubuntu support.
-            dbus-run-session xvfb-run --auto-servernum pyinstaller \
-              --noconfirm --onefile --windowed --clean \
-              --name="vpn-watchdog" \
-              --collect-all="gi.repository.AyatanaAppIndicator3" \
-              --collect-all="gi.repository.AppIndicator3" \
-              src/main.py
+            echo "Configuring PyInstaller for Linux (Manual Library Collection)..."
+            
+            # 1. Find Typelib (Required for introspection)
+            # Use 'find' to locate the actual file on the runner to avoid path assumptions
+            TYPELIB_PATH=$(find /usr/lib -name "AyatanaAppIndicator3-0.1.typelib" 2>/dev/null | head -n 1)
+            
+            # 2. Find Shared Object
+            SO_PATH=$(find /usr/lib -name "libayatana-appindicator3.so.1" 2>/dev/null | head -n 1)
+            
+            # 3. Find Legacy Fallback
+            LEGACY_TYPELIB=$(find /usr/lib -name "AppIndicator3-0.1.typelib" 2>/dev/null | head -n 1)
+
+            if [[ -n "$TYPELIB_PATH" ]]; then
+                echo "Adding Typelib: $TYPELIB_PATH"
+                PY_ARGS+=( --add-data "$TYPELIB_PATH:girepository-1.0" )
+            else
+                echo "WARNING: Ayatana Typelib not found!"
+            fi
+
+            if [[ -n "$SO_PATH" ]]; then
+                echo "Adding Shared Lib: $SO_PATH"
+                PY_ARGS+=( --add-binary "$SO_PATH:." )
+            else
+                echo "WARNING: Ayatana Shared Lib not found!"
+            fi
+            
+            if [[ -n "$LEGACY_TYPELIB" ]]; then
+                echo "Adding Legacy Typelib: $LEGACY_TYPELIB"
+                PY_ARGS+=( --add-data "$LEGACY_TYPELIB:girepository-1.0" )
+            fi
+            
+            # Run with virtual display for GTK introspection during build
+            dbus-run-session xvfb-run --auto-servernum pyinstaller "${PY_ARGS[@]}" src/main.py
           else
-            pyinstaller --noconfirm --onefile --windowed --clean --name="vpn-watchdog" src/main.py
+            # Windows / macOS
+            pyinstaller "${PY_ARGS[@]}" src/main.py
           fi
 
       # --- PACKAGING (ZIP) ---

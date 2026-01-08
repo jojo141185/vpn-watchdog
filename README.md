@@ -8,7 +8,7 @@ A modular, cross-platform system tray application that monitors your VPN connect
 **Supported Platforms:**
 - 🐧 **Linux** (Ubuntu, Kubuntu, Fedora, etc.)
 - 🪟 **Windows** (10/11)
-- 🍎 **macOS**
+- 🍎 **macOS** -> *UNTESTED!*
 
 ## Features
 
