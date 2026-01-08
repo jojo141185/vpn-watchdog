@@ -37,7 +37,7 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
     """
     width, height = size, size
     colors = { 
-        "green": (0, 200, 0, 255), 
+        "green": (0, 135, 0, 255), 
         "red": (220, 0, 0, 255), 
         "yellow": (255, 200, 0, 255), 
         "gray": (120, 120, 120, 255)
@@ -77,10 +77,10 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         text = country_code.upper().strip()[:3]
         
         # Adjust scale based on style
-        base_scale = 0.35 if style == "shield" else 0.45
-        scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
+        base_scale = 0.45 if style == "shield" else 0.52
+        txt_scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
         
-        font_size = int(size * scale_factor)
+        font_size = int(size * txt_scale_factor)
 
         # FIX: Try Linux standard fonts first, then fall back to Windows or generic
         font_candidates = [
