@@ -6,6 +6,7 @@ import platform
 import queue
 import socket
 import threading
+import time
 import os
 from collections import deque
 from PIL import Image, ImageDraw, ImageFont
@@ -77,10 +78,10 @@ def generate_icon_image(color_name="gray", country_code=None, size=64, style="sh
         text = country_code.upper().strip()[:3]
         
         # Adjust scale based on style
-        base_scale = 0.45 if style == "shield" else 0.52
-        txt_scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
+        base_scale = 0.35 if style == "shield" else 0.45
+        scale_factor = (base_scale * 0.8) if len(text) > 2 else base_scale
         
-        font_size = int(size * txt_scale_factor)
+        font_size = int(size * scale_factor)
 
         # FIX: Try Linux standard fonts first, then fall back to Windows or generic
         font_candidates = [
@@ -990,12 +991,22 @@ class TrayApp:
                  title += f"\nDNS: {dns_lbl}"
 
         self.icon.title = title
-        
-        # Only notify if explicitly requested (status change) AND status is unsafe
-        if notify and status == "unsafe": 
-            self.icon.notify("VPN ALERT", "Secure connection lost!")
-            
         self.update_menu()
+        
+        # CRITICAL FIX FOR LINUX FREEZE:
+        # Decouple notification from the main thread/GUI update logic.
+        # On Linux/GNOME, calling .notify() during network teardown can block DBus indefinitely,
+        # freezing the icon update. We run it in a daemon thread with exception handling.
+        if notify and status == "unsafe": 
+            def _safe_notify():
+                try:
+                    # Small sleep to let the OS network stack settle if we just crashed
+                    time.sleep(0.5)
+                    self.icon.notify("VPN ALERT", "Secure connection lost!")
+                except Exception as e:
+                    logger.warning(f"Notification failed (ignored): {e}")
+            
+            threading.Thread(target=_safe_notify, daemon=True).start()
 
     def run(self):
         self.icon.run()
